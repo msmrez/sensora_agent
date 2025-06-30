@@ -7,7 +7,7 @@ import logging
 from typing import List
 import uuid
 import secrets
-import struct # <--- ADDED IMPORT
+import struct
 
 from bsvlib import PrivateKey, PublicKey, TxOutput, TxInput, Unspent
 from bsvlib.script import Script
@@ -25,7 +25,6 @@ def generate_access_token() -> str:
     return str(uuid.uuid4()) + "-" + secrets.token_hex(16)
 
 def get_bsv_private_key_object(wif_string: str) -> PrivateKey | None:
-    # ... (no change)
     if not wif_string or wif_string in ["YOUR_PRIVATE_KEY_WIF_GOES_HERE", "xxx"]:
         logger.critical(f"CRITICAL: DEVICE_WIF is not set or is a placeholder: '{wif_string}'")
         return None
@@ -36,7 +35,6 @@ def get_bsv_private_key_object(wif_string: str) -> PrivateKey | None:
         return None
 
 def get_bsv_public_key_object(private_key_obj: PrivateKey) -> PublicKey | None:
-    # ... (no change)
     if private_key_obj:
         try:
             return private_key_obj.public_key()
@@ -46,7 +44,6 @@ def get_bsv_public_key_object(private_key_obj: PrivateKey) -> PublicKey | None:
     return None
 
 def get_address_and_locking_script(public_key_obj: PublicKey) -> tuple[str | None, str | None]:
-    # ... (no change)
     if public_key_obj:
         try:
             address_str = public_key_obj.address() 
@@ -64,7 +61,7 @@ def find_spendable_utxos_bitails(
     expected_locking_script_hex: str | None,
     private_keys_for_address: List[PrivateKey] | None 
 ) -> tuple[list[Unspent], int]:
-    # ... (no change)
+    
     if not expected_locking_script_hex:
         logger.critical("[BSV] CRITICAL: Expected locking script hex not provided to find_spendable_utxos_bitails.")
         return [], 0
@@ -113,7 +110,6 @@ def find_spendable_utxos_bitails(
     return [], 0
 
 def broadcast_bsv_transaction_bitails(raw_tx_hex: str) -> str | None:
-    # ... (no change)
     broadcast_url = f"{config.BITAILS_API_BASE_URL}/tx/broadcast"
     headers = {"Content-Type": "application/json"}
     payload = {"raw": raw_tx_hex} 
@@ -163,11 +159,10 @@ def create_and_broadcast_op_return_tx(priv_key_obj: PrivateKey, pub_key_obj: Pub
         return None
 
     try:
-        # --- CORRECTED OP_RETURN SCRIPT CREATION ---
         if not isinstance(op_return_data, bytes):
             raise ValueError(f"op_return_data must be bytes, got {type(op_return_data)}")
         
-        script_bytes_list = [b'\x00', b'\x6a'] # OP_FALSE OP_RETURN
+        script_bytes_list = [b'\x00', b'\x6a']
         data_len = len(op_return_data)
         
         if data_len <= 75: script_bytes_list.append(bytes([data_len])) 
@@ -178,7 +173,6 @@ def create_and_broadcast_op_return_tx(priv_key_obj: PrivateKey, pub_key_obj: Pub
         script_bytes_list.append(op_return_data)
         serialized_script_bytes = b''.join(script_bytes_list)
         op_return_script = Script(serialized_script_bytes)
-        # --- END CORRECTION ---
 
         outputs_for_tx = [TxOutput(out=op_return_script, satoshi=0)] 
         
@@ -196,16 +190,51 @@ def create_and_broadcast_op_return_tx(priv_key_obj: PrivateKey, pub_key_obj: Pub
         return None
 
 def parse_op_return_data_from_hex(op_return_script_hex: str) -> bytes | None:
-    # ... (no change, but ensure it's here)
+    """
+    Parses data from an OP_RETURN script hex by manually handling pushdata opcodes.
+    This is the robust method we know works.
+    """
     try:
-        script_bytes = bytes.fromhex(op_return_script_hex)
-        return Script(script_bytes).get_op_return()
+        # Determine start of data payload by skipping OP_FALSE and OP_RETURN opcodes
+        if op_return_script_hex.startswith("006a"):
+            script_bytes = bytes.fromhex(op_return_script_hex[4:])
+        elif op_return_script_hex.startswith("6a"):
+            script_bytes = bytes.fromhex(op_return_script_hex[2:])
+        else:
+            return None # Not a recognized OP_RETURN script
+
+        if not script_bytes:
+            return b'' # Empty OP_RETURN
+
+        opcode = script_bytes[0]
+        if 0x01 <= opcode <= 0x4b: # Direct push of 1-75 bytes
+            length_to_read = opcode
+            if len(script_bytes) < 1 + length_to_read: return None
+            return script_bytes[1 : 1 + length_to_read]
+        elif opcode == 0x4c: # OP_PUSHDATA1
+            if len(script_bytes) < 2: return None
+            length_to_read = script_bytes[1]
+            if len(script_bytes) < 2 + length_to_read: return None
+            return script_bytes[2 : 2 + length_to_read]
+        elif opcode == 0x4d: # OP_PUSHDATA2
+            if len(script_bytes) < 3: return None
+            length_to_read = int.from_bytes(script_bytes[1:3], 'little')
+            if len(script_bytes) < 3 + length_to_read: return None
+            return script_bytes[3 : 3 + length_to_read]
+        elif opcode == 0x4e: # OP_PUSHDATA4
+            if len(script_bytes) < 5: return None
+            length_to_read = int.from_bytes(script_bytes[1:5], 'little')
+            if len(script_bytes) < 5 + length_to_read: return None
+            return script_bytes[5 : 5 + length_to_read]
+        else: # Not a standard push opcode or malformed
+            return None
+            
     except Exception as e:
-        logger.exception(f"[BSV_PARSE] Error parsing OP_RETURN hex '{op_return_script_hex[:20]}...': {e}")
+        logger.exception(f"[BSV_PARSE] Error manually parsing OP_RETURN hex '{op_return_script_hex[:20]}...': {e}")
         return None
 
 def check_payment_on_chain(reading_id_to_check: int, payment_to_address: str, device_p2pkh_script_hex: str, specific_txid_to_check: str | None = None) -> tuple[bool, str | None]:
-    # ... (no change)
+    
     candidate_tx_ids: list[str] = []
     if specific_txid_to_check:
         logger.info(f"[PAY_CHECK] Verifying specific TXID: {specific_txid_to_check} for reading {reading_id_to_check}")
@@ -247,11 +276,15 @@ def check_payment_on_chain(reading_id_to_check: int, payment_to_address: str, de
             op_return_found = False
             for o in outputs:
                 script_hex = o.get("script", "")
-                if script_hex.startswith("006a"):
+                if script_hex.startswith("006a") or script_hex.startswith("6a"): # Added check for 6a as well
                     op_return_data = parse_op_return_data_from_hex(script_hex)
-                    if op_return_data is not None and op_return_data.decode('utf-8', errors='ignore') == expected_op_return_str:
-                        op_return_found = True
-                        break
+                    if op_return_data is not None:
+                        try:
+                            if op_return_data.decode('utf-8') == expected_op_return_str:
+                                op_return_found = True
+                                break 
+                        except UnicodeDecodeError:
+                            continue 
 
             if payment_found and op_return_found:
                 logger.info(f"[PAY_CHECK] SUCCESS! Payment confirmed for reading {reading_id_to_check} in TX {txid}.")

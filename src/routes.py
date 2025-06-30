@@ -122,7 +122,10 @@ def register_routes(app, device_state):
         )
 
         if not payment_verified:
-            abort(402, "Payment verification failed for the specified reading ID and payment TXID.")
+            # --- START CORRECTION ---
+            # Instead of abort(402, ...), raise the custom exception
+            raise PaymentRequiredError("Payment verification failed for the specified reading ID and payment TXID.")
+            # --- END CORRECTION ---
 
         access_token = bsv_utils.generate_access_token()
         expiry = int(time.time()) + config.TOKEN_EXPIRY_SECONDS
