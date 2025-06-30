@@ -314,3 +314,49 @@ def get_latest_tokens(limit: int = 10) -> list:
         return []
     finally:
         if conn: conn.close()
+
+# Add this function inside src/database.py
+
+def increment_key_value(key: str, amount: int = 1):
+    """Atomically increments a numeric value for a given key in the key-value store."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        # INSERT OR IGNORE ensures the key exists with a default value of 0 if it's the first time.
+        conn.execute("INSERT OR IGNORE INTO key_value_store (key, value) VALUES (?, '0')", (key,))
+        # Then, perform the atomic update.
+        conn.execute("UPDATE key_value_store SET value = CAST(value AS INTEGER) + ? WHERE key = ?", (amount, key))
+        conn.commit()
+    except Exception as e:
+        logger.exception(f"Error incrementing key '{key}' in key_value_store: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+def get_all_reputation_metrics() -> dict:
+    """Fetches all keys related to reputation metrics from the key-value store."""
+    keys_to_fetch = (
+        'last_adv_timestamp', 'successful_adv_count', 'failed_adv_count',
+        'last_stamp_timestamp', 'successful_stamp_count', 'failed_stamp_count'
+    )
+    conn = None
+    try:
+        conn = get_db_connection()
+        # Create a format string for the IN clause
+        placeholders = ', '.join('?' for _ in keys_to_fetch)
+        query = f"SELECT key, value FROM key_value_store WHERE key IN ({placeholders})"
+        cursor = conn.execute(query, keys_to_fetch)
+        # Convert all values to int, defaulting to 0 if conversion fails
+        metrics = {}
+        for row in cursor.fetchall():
+            try:
+                metrics[row['key']] = int(row['value'])
+            except (ValueError, TypeError):
+                metrics[row['key']] = 0
+        return metrics
+    except Exception as e:
+        logger.exception(f"Error getting all reputation metrics: {e}")
+        return {} # Return empty dict on error
+    finally:
+        if conn:
+            conn.close()

@@ -5,26 +5,22 @@ import time
 import logging
 import sys
 from flask import Flask
+import random # <--- FIX: IMPORT ADDED
 
 # Import from our new 'src' package
 from src import config, database, protocols, bsv_utils, routes
 
 # --- Logging Setup ---
-# This basicConfig should be at the very start of the application entry point
 logging.basicConfig(
-    level=logging.INFO, # Change to logging.DEBUG for more verbosity
+    level=logging.INFO,
     format='%(asctime)s - %(levelname)s - [%(threadName)s] %(module)s.%(funcName)s:%(lineno)d - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
-# Silence overly verbose libraries
 logging.getLogger("requests").setLevel(logging.WARNING)
 logging.getLogger("urllib3").setLevel(logging.WARNING)
-
 logger = logging.getLogger(__name__)
 
 # --- Main Application State Class ---
-# This holds the state that needs to be shared across different parts of the app,
-# especially the derived BSV objects.
 class DeviceState:
     def __init__(self):
         self.private_key = None
@@ -32,7 +28,6 @@ class DeviceState:
         self.address = None
         self.locking_script_hex = None
 
-# Global instance of the device state
 device_state = DeviceState()
 
 # --- Sensor Data Simulation ---
@@ -49,7 +44,7 @@ def data_type_code_to_name(code: int) -> str:
 # --- Background Threads Logic ---
 
 def sensor_and_stamp_loop():
-    """Periodically captures data, stamps it on-chain, and saves it to the DB."""
+    """Periodically captures data, stamps it on-chain, and records metrics."""
     logger.info("Sensor and stamp loop starting...")
     if not (device_state.private_key and device_state.public_key and device_state.locking_script_hex):
         logger.critical("Device keys not loaded. Stamper thread cannot operate.")
@@ -73,21 +68,27 @@ def sensor_and_stamp_loop():
                 )
                 
                 if onchain_txid:
+                    # --- RECORD SUCCESS METRIC ---
+                    database.increment_key_value('successful_stamp_count')
+                    database.set_key_value('last_stamp_timestamp', str(int(time.time())))
+                    
                     logger.info(f"Successfully stamped reading {reading_ts} on-chain. TXID: {onchain_txid}")
                     database.save_reading(reading_ts, reading_ts, value_tuple, data_type, op_return_payload.hex(), onchain_txid)
                 else:
+                    # --- RECORD FAILURE METRIC ---
+                    database.increment_key_value('failed_stamp_count')
                     logger.error(f"Failed to stamp reading {reading_ts} on-chain. Will retry next cycle.")
 
         except Exception as e:
+            database.increment_key_value('failed_stamp_count') # Also count exceptions as failures
             logger.exception(f"CRITICAL ERROR in sensor_and_stamp_loop: {e}")
-            # In case of a critical error, wait longer before retrying to prevent rapid-fire failures
             time.sleep(60) 
 
         logger.info(f"Stamper thread sleeping for {config.DATA_CAPTURE_INTERVAL_SECONDS} seconds...")
         time.sleep(config.DATA_CAPTURE_INTERVAL_SECONDS)
 
-def broadcast_advertisement_tx():
-    """Helper function to create and broadcast one advertisement transaction."""
+def broadcast_advertisement_tx() -> bool:
+    """Helper function to create and broadcast one advertisement transaction and record metrics."""
     if not (device_state.private_key and device_state.public_key and device_state.locking_script_hex):
         logger.error("[ADV_TX] Keys not loaded. Cannot broadcast advertisement.")
         return False
@@ -96,6 +97,7 @@ def broadcast_advertisement_tx():
     adv_op_return_payload = protocols.create_advertisement_op_return_payload()
     if not adv_op_return_payload:
         logger.error("[ADV_TX] Failed to create advertisement payload.")
+        database.increment_key_value('failed_adv_count')
         return False
     
     logger.info(f"[ADV_TX] Attempting to broadcast advertisement transaction...")
@@ -105,12 +107,16 @@ def broadcast_advertisement_tx():
     )
 
     if txid:
+        # --- RECORD SUCCESS METRIC ---
         logger.info(f"[ADV_TX] Advertisement TX broadcast successful! TXID: {txid}")
         database.set_key_value('last_adv_txid', txid)
         database.set_key_value('last_adv_timestamp', str(int(time.time())))
+        database.increment_key_value('successful_adv_count')
         return True
     else:
+        # --- RECORD FAILURE METRIC ---
         logger.error("[ADV_TX] Failed to broadcast advertisement transaction.")
+        database.increment_key_value('failed_adv_count')
         return False
 
 def advertisement_loop():
@@ -128,7 +134,7 @@ def advertisement_loop():
 # --- MAIN EXECUTION BLOCK ---
 if __name__ == "__main__":
     logger.info("--- Starting Sensōra Device Agent ---")
-
+    
     # 1. Initialize Database
     database.init_db() 
     

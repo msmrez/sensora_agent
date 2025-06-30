@@ -11,6 +11,7 @@ from werkzeug.exceptions import HTTPException
 from . import config
 from . import database
 from . import bsv_utils
+from . import reputation
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,10 @@ def register_routes(app, device_state):
         tokens = database.get_latest_tokens()
         last_adv_txid = database.get_key_value('last_adv_txid') or "N/A"
         
+        # --- NEW: Get reputation data ---
+        reputation_data = reputation.calculate_reputation_score()
+        
+        # Prepare chart data
         chart_data = { "labels": [], "temp_data": [], "humid_data": [] }
         for reading in reversed(readings):
             if reading.get("paid") and reading.get("sensor_values"):
@@ -86,6 +91,7 @@ def register_routes(app, device_state):
             readings=readings,
             tokens=tokens,
             last_adv_txid=last_adv_txid,
+            reputation_data=reputation_data,
             chart_data=json.dumps(chart_data),
             DATA_TYPE_TEMP_HUMID=config.DATA_TYPE_TEMP_HUMID,
             DATA_CAPTURE_INTERVAL_SECONDS=config.DATA_CAPTURE_INTERVAL_SECONDS,
@@ -103,7 +109,19 @@ def register_routes(app, device_state):
             "payment_address": device_state.address,
             "payment_instructions": f"Send {config.PRICE_SATS_PER_READING} sats to {device_state.address}. OP_RETURN: 'SENSORA_PAY:{latest_id}'."
         })
-
+    @app.route("/status", methods=['GET'])
+    def get_status_route():
+        """Returns the current status and reputation of the sensor."""
+        reputation_data = reputation.calculate_reputation_score()
+        
+        status_payload = {
+            "device_id": config.DEVICE_IPV6_ADDRESS,
+            "bsv_address": device_state.address,
+            "status": "online",
+            "timestamp_utc": int(time.time()),
+            "reputation": reputation_data
+        }
+        return jsonify(status_payload)
     @app.route("/claim_reading/<int:reading_id>", methods=['POST'])
     def claim_reading_route(reading_id: int):
         data = request.get_json()
