@@ -54,11 +54,11 @@ ADVERTISEMENT_PREFIX: bytes = b'SNSRADV1' # ASCII "SNSRADV1"
 # -----------------------------------------------------------------------------
 # CONFIGURATION
 # -----------------------------------------------------------------------------
-DEVICE_IPV6_ADDRESS: str = "2a01:4f8:1c1b:83c3::1" 
+DEVICE_IPV6_ADDRESS: str = "2a01:4f9:c013:a99b::1" 
 DEVICE_PORT: int = 8080 
 DEVICE_WIF: str = "KyuXbxKpRugMxJzHhJq4oUYJaxmFBnSLDNtjoccakDC9ZRMZzcS5" # YOUR ACTUAL WIF
 
-PRICE_SATS_PER_READING: int = 150
+PRICE_SATS_PER_READING: int = 5
 DATA_CAPTURE_INTERVAL_SECONDS: int = 300 
 BSV_FEE_SATOSHIS_PER_BYTE: float = 0.02
 
@@ -136,8 +136,20 @@ def broadcast_advertisement_tx():
     )
 
     if txid:
-        logger.info(f"[ADV_TX] Advertisement transaction broadcasted successfully! TXID: {txid}")
+        print(f"[ADV_TX] Advertisement transaction broadcasted successfully! TXID: {txid}")
+        # Store this TXID in our new key-value store
+        conn = None
+        try:
+            conn = get_db_connection()
+            conn.execute("INSERT OR REPLACE INTO key_value_store (key, value) VALUES (?, ?)", 
+                         ('last_adv_txid', txid))
+            conn.commit()
+        except Exception as e:
+            print(f"[ADV_TX] Error saving last_adv_txid to DB: {e}")
+        finally:
+            if conn: conn.close()
         return True
+
     else:
         logger.error("[ADV_TX] Failed to broadcast advertisement transaction.")
         return False
@@ -201,7 +213,12 @@ def init_db():
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_token_reading_id ON access_tokens (reading_id);")
         cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS uidx_reading_payment ON access_tokens (reading_id, payment_txid);")
         logger.info("[DB_INIT] CREATE INDEX for access_tokens statements executed.")
-
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS key_value_store (
+                key TEXT PRIMARY KEY,
+                value TEXT
+            )
+        ''')
         conn.commit()
         logger.info(f"[DB_INIT] Database '{DATABASE_NAME}' initialized/checked successfully. Tables should exist.")
     except Exception as e:
@@ -641,13 +658,21 @@ def bad_request_error_handler(error: HTTPException):
     return response
 
 @app.route("/", methods=['GET']) 
+
 def dashboard():
-    global DEVICE_IPV6_ADDRESS, DEVICE_PAYMENT_ADDRESS, PRICE_SATS_PER_READING, DATA_TYPE_TEMP_HUMID
+    global DEVICE_IPV6_ADDRESS, DEVICE_PAYMENT_ADDRESS, PRICE_SATS_PER_READING, DATA_TYPE_TEMP_HUMID, DATA_CAPTURE_INTERVAL_SECONDS
+
+    # --- Fetch all necessary data from the DB in one connection ---
     readings_from_db = []
+    tokens_from_db = []
+    last_adv_txid = "N/A" # Default placeholder
+    
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
+
+        # 1. Fetch latest sensor readings
         cursor.execute("SELECT * FROM sensor_readings ORDER BY reading_id DESC LIMIT 20")
         rows = cursor.fetchall()
         for row in rows:
@@ -659,23 +684,55 @@ def dashboard():
             else:
                 reading_dict["sensor_values"] = None
             readings_from_db.append(reading_dict)
+
+        # 2. Fetch latest access tokens
+        cursor.execute("SELECT * FROM access_tokens ORDER BY token_id DESC LIMIT 10")
+        token_rows = cursor.fetchall()
+        for row in token_rows:
+            tokens_from_db.append(dict(row))
+        
+        # 3. Fetch last advertisement TXID
+        cursor.execute("SELECT value FROM key_value_store WHERE key = 'last_adv_txid'")
+        adv_row = cursor.fetchone()
+        if adv_row:
+            last_adv_txid = adv_row['value']
+        
     except Exception as e:
-        logger.exception(f"Error fetching readings for dashboard: {e}")
+        print(f"Error fetching data for dashboard: {e}")
         traceback.print_exc()
     finally:
         if conn: conn.close()
+            
     auto_refresh_seconds = 30 
     current_year_str = time.strftime('%Y')
+
+    # Prepare data for the chart (labels and values for paid readings)
+    chart_data = { "labels": [], "temp_data": [], "humid_data": [] }
+    # Go through readings in reverse (oldest to newest) for a proper chart axis
+    for reading in reversed(readings_from_db):
+        if reading.get("paid") and reading.get("sensor_values"):
+            # Format timestamp for display on the chart
+            chart_data["labels"].append(time.strftime('%H:%M:%S', time.localtime(reading["reading_id"])))
+            chart_data["temp_data"].append(reading["sensor_values"][0])
+            chart_data["humid_data"].append(reading["sensor_values"][1])
+
+    # In the return statement, each keyword argument should appear only once.
     return render_template(
         "index.html", 
         device_ipv6=DEVICE_IPV6_ADDRESS,
         device_payment_address=DEVICE_PAYMENT_ADDRESS,
         price_sats=PRICE_SATS_PER_READING,
+        DATA_CAPTURE_INTERVAL_SECONDS=DATA_CAPTURE_INTERVAL_SECONDS, # Added this for the status card
         readings=readings_from_db,
+        tokens=tokens_from_db,
+        last_adv_txid=last_adv_txid, # Pass the advertisement txid
+        chart_data=json.dumps(chart_data), # Pass chart data as a JSON string
         DATA_TYPE_TEMP_HUMID=DATA_TYPE_TEMP_HUMID, 
         auto_refresh_interval=auto_refresh_seconds,
-        current_year=current_year_str
+        current_year=current_year_str,
+        time=time # Pass the whole time module for use in the template
     )
+
 
 @app.route("/price", methods=['GET'])
 def get_price_route():

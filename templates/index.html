@@ -4,115 +4,182 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sensōra Device Dashboard - {{ device_ipv6 }}</title>
+    <!-- Include Chart.js from a CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"; margin: 20px; background-color: #f8f9fa; color: #212529; line-height: 1.6; }
-        .container { max-width: 1200px; margin: 0 auto; background-color: #fff; padding: 20px; border-radius: 8px; box-shadow: 0 0 15px rgba(0,0,0,0.05); }
-        h1, h2 { color: #0056b3; border-bottom: 2px solid #dee2e6; padding-bottom: 10px; margin-bottom: 20px; }
-        h1 { text-align: center; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 0.9em; }
-        th, td { border: 1px solid #dee2e6; padding: 10px 12px; text-align: left; vertical-align: top;}
-        th { background-color: #007bff; color: white; }
-        tr:nth-child(even) { background-color: #f2f2f2; }
-        tr:hover { background-color: #e9ecef; }
-        .status-paid { color: #28a745; font-weight: bold; }
-        .status-awaiting { color: #fd7e14; }
-        a { color: #0056b3; text-decoration: none; }
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 0; background-color: #f0f2f5; color: #1c1e21; }
+        .grid-container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 20px; max-width: 1600px; margin: auto; }
+        .card { background-color: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1), 0 8px 16px rgba(0,0,0,0.1); padding: 20px; }
+        h1, h2, h3 { color: #1d2129; margin-top: 0; }
+        h1 { grid-column: 1 / -1; text-align: center; font-size: 2.5em; color: #0056b3; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.9em; }
+        th, td { border-bottom: 1px solid #ddd; padding: 12px 15px; text-align: left; }
+        th { background-color: #f5f6f7; font-weight: 600; }
+        tr:hover { background-color: #f5f6f7; }
+        .status-paid { color: #31a24c; font-weight: bold; }
+        .status-awaiting { color: #f5982e; }
+        .status-expired, .status-used { color: #e02c4d; }
+        a { color: #0c66ff; text-decoration: none; }
         a:hover { text-decoration: underline; }
-        .info-box { background-color: #e7f3fe; border-left: 5px solid #007bff; margin-bottom: 25px; padding: 15px 20px; border-radius: 4px; }
-        .info-box p { margin: 8px 0; }
-        .code { font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace; background-color: #e9ecef; padding: 3px 5px; border-radius: 3px; font-size: 0.85em; word-break: break-all;}
-        #refresh-info { font-size: 0.85em; color: #6c757d; margin-top: 25px; text-align: center;}
-        .footer { text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #dee2e6; font-size: 0.9em; color: #6c757d;}
+        .info-box p { margin: 8px 0; font-size: 1.1em; }
+        .code { font-family: Menlo, Monaco, Consolas, "Courier New", monospace; background-color: #f0f2f5; padding: 3px 6px; border-radius: 4px; font-size: 0.9em; word-break: break-all; }
+        #refresh-info { grid-column: 1 / -1; font-size: 0.8em; color: #606770; text-align: center; padding-top: 10px; }
+        .full-width { grid-column: 1 / -1; }
+        .table-wrapper { max-height: 400px; overflow-y: auto; }
     </style>
     {% if auto_refresh_interval > 0 %}
     <meta http-equiv="refresh" content="{{ auto_refresh_interval }}">
     {% endif %}
 </head>
 <body>
-    <div class="container">
+    <div class="grid-container">
         <h1>Sensōra IoT Device Dashboard</h1>
 
-        <div class="info-box">
-            <h2>Device Information</h2>
-            <p><strong>Device IPv6 Address:</strong> <span class="code">{{ device_ipv6 }}</span></p>
-            <p><strong>BSV Payment Address:</strong> <a href="https://bitails.io/address/{{ device_payment_address }}" target="_blank" class="code">{{ device_payment_address }}</a></p>
-            <p><strong>Price Per Reading:</strong> {{ price_sats }} satoshis</p>
+        <div class="card">
+            <h3>Device Information</h3>
+            <p><strong>IPv6 Address:</strong> <span class="code">{{ device_ipv6 }}</span></p>
+            <p><strong>BSV Address:</strong> <a href="https://bitails.io/address/{{ device_payment_address }}" target="_blank" class="code">{{ device_payment_address }}</a></p>
+            <p><strong>Price Per Reading:</strong> {{ price_sats }} sats</p>
         </div>
 
-        <h2>Recent Sensor Readings</h2>
-        {% if readings %}
-            <table>
-                <thead>
-                    <tr>
-                        <th>Reading ID (Timestamp)</th>
-                        <th>Sensor Values</th>
-                        <th>On-Chain Proof TXID</th>
-                        <th>OP_RETURN Payload (Hex Prefix)</th>
-                        <th>Status</th>
-                        <th>Paid By TXID</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for reading in readings %}
-                    <tr>
-                        <td>{{ reading.reading_id }}</td>
-                        <td>
-                            {% if reading.paid %}
-                                {% if reading.data_type_code == DATA_TYPE_TEMP_HUMID and reading.sensor_values %}
-                                    {{ reading.sensor_values[0] }} °C, {{ reading.sensor_values[1] }} %
-                                {% elif reading.sensor_values %}
-                                    <!-- Basic fallback if type unknown but values exist and paid -->
-                                    {{ reading.sensor_values }}
+        <div class="card">
+            <h3>Network Status</h3>
+            <p><strong>Last Advertisement TXID:</strong> 
+                {% if last_adv_txid != "N/A" %}
+                    <a href="https://bitails.io/tx/{{ last_adv_txid }}" target="_blank" class="code">{{ last_adv_txid[:12] }}...</a>
+                {% else %}
+                    {{ last_adv_txid }}
+                {% endif %}
+            </p>
+            <p><strong>Stamping Interval:</strong> {{ DATA_CAPTURE_INTERVAL_SECONDS }} seconds</p>
+            <p><strong>Device Status:</strong> <span style="color: green;">●</span> Stamping Data</p> <!-- Simplified status -->
+        </div>
+
+        <div class="card full-width">
+            <h3>Paid Data Visualization</h3>
+            <canvas id="sensorChart"></canvas>
+        </div>
+
+        <div class="card full-width">
+            <h3>Recent Sensor Readings</h3>
+            <div class="table-wrapper">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Reading ID (Timestamp)</th>
+                            <th>Sensor Values</th>
+                            <th>On-Chain Proof TXID</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for reading in readings %}
+                        <tr>
+                            <td>{{ reading.reading_id }}</td>
+                            <td>
+                                {% if reading.paid %}
+                                    <strong style="color: #31a24c;">{{ reading.sensor_values[0] }} °C, {{ reading.sensor_values[1] }} %</strong>
                                 {% else %}
-                                    <!-- Paid, but data format issue or not Temp/Humid type -->
-                                    Data Available (Format/Type Specific)
+                                    <span class="status-awaiting">Data Locked</span>
                                 {% endif %}
-                            {% else %}
-                                <span class="status-awaiting">Payment Required to View</span>
-                            {% endif %}
-                        </td>
-                        <td>
-                            <a href="https://bitails.io/tx/{{ reading.onchain_proof_txid }}" target="_blank" class="code">
-                                {{ reading.onchain_proof_txid[:12] }}...{{ reading.onchain_proof_txid[-4:] }}
-                            </a>
-                        </td>
-                        <td><span class="code" title="{{ reading.op_return_payload_hex }}">{{ reading.op_return_payload_hex[:16] }}...</span></td>
-                        <td class="{{ 'status-paid' if reading.paid else 'status-awaiting' }}">
-                            {{ "Paid" if reading.paid else "Awaiting Payment" }}
-                        </td>
-                        <td>
-                            {% if reading.consumer_payment_txid %}
-                                <a href="https://bitails.io/tx/{{ reading.consumer_payment_txid }}" target="_blank" class="code">
-                                    {{ reading.consumer_payment_txid[:12] }}...{{ reading.consumer_payment_txid[-4:] }}
-                                </a>
-                            {% else %}
-                                -
-                            {% endif %}
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        {% else %}
-            <p>No readings available yet. The sensor might be starting up or no data has been stamped to the blockchain and recorded in the database.</p>
-        {% endif %}
-
-        {% if auto_refresh_interval > 0 %}
-            <p id="refresh-info">This page will auto-refresh every {{ auto_refresh_interval }} seconds.</p>
-        {% else %}
-            <p id="refresh-info">Auto-refresh is disabled. Please refresh manually to see updates.</p>
-        {% endif %}
-        
-        <div class="footer">
-            Sensōra MVP © {{ current_year }} 
+                            </td>
+                            <td><a href="https://bitails.io/tx/{{ reading.onchain_proof_txid }}" target="_blank" class="code">{{ reading.onchain_proof_txid[:12] }}...</a></td>
+                            <td class="{{ 'status-paid' if reading.paid else 'status-awaiting' }}">
+                                {{ "Paid" if reading.paid else "Awaiting Payment" }}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
+
+        <div class="card full-width">
+            <h3>Issued Access Tokens (Last 10)</h3>
+            <div class="table-wrapper">
+                 <table>
+                    <thead>
+                        <tr>
+                            <th>For Reading ID</th>
+                            <th>Access Token</th>
+                            <th>Expires At (UTC)</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for token in tokens %}
+                        {% set is_expired = (time.time() | int) >= token.expiry_timestamp %}
+                        {% set is_used = token.usage_count >= token.max_usage %}
+                        <tr>
+                            <td>{{ token.reading_id }}</td>
+                            <td><span class="code">{{ token.access_token[:12] }}...</span></td>
+                            <td>{{ time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(token.expiry_timestamp)) }}</td>
+                            <td class="{{ 'status-expired' if is_expired else ('status-used' if is_used else 'status-paid') }}">
+                                {% if is_expired %}Expired
+                                {% elif is_used %}Used ({{ token.usage_count }}/{{ token.max_usage }})
+                                {% else %}Valid
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <p id="refresh-info" class="full-width">This page will auto-refresh every {{ auto_refresh_interval }} seconds.</p>
     </div>
-    <!-- 
-        Any client-side JavaScript for future enhancements would go here, inside <script> tags.
-        For example:
-        <script>
-            // console.log("Sensora Dashboard Loaded");
-        </script>
-    -->
+
+    <script>
+        // Pass chart data from Flask/Jinja2 to JavaScript
+        const chartData = JSON.parse('{{ chart_data | safe }}');
+
+        const ctx = document.getElementById('sensorChart').getContext('2d');
+        const sensorChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: chartData.labels,
+                datasets: [{
+                    label: 'Temperature (°C)',
+                    data: chartData.temp_data,
+                    borderColor: 'rgb(255, 99, 132)',
+                    backgroundColor: 'rgba(255, 99, 132, 0.5)',
+                    yAxisID: 'y_temp',
+                }, {
+                    label: 'Humidity (%)',
+                    data: chartData.humid_data,
+                    borderColor: 'rgb(54, 162, 235)',
+                    backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                    yAxisID: 'y_humid',
+                }]
+            },
+            options: {
+                responsive: true,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    x: {
+                        display: true,
+                        title: { display: true, text: 'Time (HH:MM:SS)' }
+                    },
+                    y_temp: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        title: { display: true, text: 'Temperature (°C)' }
+                    },
+                    y_humid: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        title: { display: true, text: 'Humidity (%)' },
+                        grid: { drawOnChartArea: false } // only draw grid for first Y axis
+                    }
+                }
+            }
+        });
+    </script>
 </body>
 </html>
