@@ -122,6 +122,7 @@ def broadcast_advertisement_tx() -> bool:
 def advertisement_loop():
     """Periodically broadcasts the sensor's advertisement."""
     logger.info("Advertisement loop starting...")
+    time.sleep(config.ADVERTISEMENT_INTERVAL_SECONDS)
     while True:
         try:
             broadcast_advertisement_tx()
