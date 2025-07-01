@@ -4,8 +4,9 @@ import threading
 import time
 import logging
 import sys
+import random
 from flask import Flask
-import random # <--- FIX: IMPORT ADDED
+from threading import Lock # <--- ADD THIS IMPORT
 
 # Import from our new 'src' package
 from src import config, database, protocols, bsv_utils, routes
@@ -29,6 +30,7 @@ class DeviceState:
         self.locking_script_hex = None
 
 device_state = DeviceState()
+bsv_tx_lock = Lock() # --- FIX: CREATE THE GLOBAL LOCK ---
 
 # --- Sensor Data Simulation ---
 def get_simulated_sensor_data() -> tuple[int, tuple[float, float], int]:
@@ -44,7 +46,6 @@ def data_type_code_to_name(code: int) -> str:
 # --- Background Threads Logic ---
 
 def sensor_and_stamp_loop():
-    """Periodically captures data, stamps it on-chain, and records metrics."""
     logger.info("Sensor and stamp loop starting...")
     if not (device_state.private_key and device_state.public_key and device_state.locking_script_hex):
         logger.critical("Device keys not loaded. Stamper thread cannot operate.")
@@ -60,27 +61,27 @@ def sensor_and_stamp_loop():
                 op_return_payload = protocols.create_sensora_op_return_payload(reading_ts, data_type, value_tuple)
                 
                 logger.info(f"Attempting to stamp reading {reading_ts} on-chain...")
+                # --- START CORRECTION ---
                 onchain_txid = bsv_utils.create_and_broadcast_op_return_tx(
+                    bsv_tx_lock, # Pass the lock object
                     device_state.private_key, 
                     device_state.public_key, 
                     device_state.locking_script_hex, 
                     op_return_payload
                 )
+                # --- END CORRECTION ---
                 
                 if onchain_txid:
-                    # --- RECORD SUCCESS METRIC ---
                     database.increment_key_value('successful_stamp_count')
                     database.set_key_value('last_stamp_timestamp', str(int(time.time())))
-                    
                     logger.info(f"Successfully stamped reading {reading_ts} on-chain. TXID: {onchain_txid}")
                     database.save_reading(reading_ts, reading_ts, value_tuple, data_type, op_return_payload.hex(), onchain_txid)
                 else:
-                    # --- RECORD FAILURE METRIC ---
                     database.increment_key_value('failed_stamp_count')
                     logger.error(f"Failed to stamp reading {reading_ts} on-chain. Will retry next cycle.")
 
         except Exception as e:
-            database.increment_key_value('failed_stamp_count') # Also count exceptions as failures
+            database.increment_key_value('failed_stamp_count')
             logger.exception(f"CRITICAL ERROR in sensor_and_stamp_loop: {e}")
             time.sleep(60) 
 
@@ -88,7 +89,6 @@ def sensor_and_stamp_loop():
         time.sleep(config.DATA_CAPTURE_INTERVAL_SECONDS)
 
 def broadcast_advertisement_tx() -> bool:
-    """Helper function to create and broadcast one advertisement transaction and record metrics."""
     if not (device_state.private_key and device_state.public_key and device_state.locking_script_hex):
         logger.error("[ADV_TX] Keys not loaded. Cannot broadcast advertisement.")
         return False
@@ -101,28 +101,31 @@ def broadcast_advertisement_tx() -> bool:
         return False
     
     logger.info(f"[ADV_TX] Attempting to broadcast advertisement transaction...")
+    # --- START CORRECTION ---
     txid = bsv_utils.create_and_broadcast_op_return_tx(
-        device_state.private_key, device_state.public_key, 
-        device_state.locking_script_hex, adv_op_return_payload
+        bsv_tx_lock, # Pass the lock object
+        device_state.private_key, 
+        device_state.public_key, 
+        device_state.locking_script_hex, 
+        adv_op_return_payload
     )
+    # --- END CORRECTION ---
 
     if txid:
-        # --- RECORD SUCCESS METRIC ---
         logger.info(f"[ADV_TX] Advertisement TX broadcast successful! TXID: {txid}")
         database.set_key_value('last_adv_txid', txid)
         database.set_key_value('last_adv_timestamp', str(int(time.time())))
         database.increment_key_value('successful_adv_count')
         return True
     else:
-        # --- RECORD FAILURE METRIC ---
         logger.error("[ADV_TX] Failed to broadcast advertisement transaction.")
         database.increment_key_value('failed_adv_count')
         return False
 
 def advertisement_loop():
-    """Periodically broadcasts the sensor's advertisement."""
-    logger.info("Advertisement loop starting...")
+    logger.info("Advertisement loop starting... will broadcast after the first interval.")
     time.sleep(config.ADVERTISEMENT_INTERVAL_SECONDS)
+    
     while True:
         try:
             broadcast_advertisement_tx()
@@ -136,10 +139,8 @@ def advertisement_loop():
 if __name__ == "__main__":
     logger.info("--- Starting Sensōra Device Agent ---")
     
-    # 1. Initialize Database
     database.init_db() 
     
-    # 2. Load WIF and derive all necessary BSV objects and addresses
     logger.info(f"Loading WIF: {config.DEVICE_WIF[:5]}...")
     device_state.private_key = bsv_utils.get_bsv_private_key_object(config.DEVICE_WIF) 
     if not device_state.private_key:
@@ -158,20 +159,16 @@ if __name__ == "__main__":
     device_state.address = addr
     device_state.locking_script_hex = script_hex
     
-    # 3. Print device info and create Flask app
     logger.info(f"Device Initialized. Payment Address: {device_state.address}")
     app = Flask(__name__, template_folder='templates')
     
-    # 4. Register error handlers and routes
     routes.register_error_handlers(app)
     routes.register_routes(app, device_state)
 
-    # 5. Perform initial sensor advertisement broadcast
     logger.info("Broadcasting initial sensor advertisement...")
     if not broadcast_advertisement_tx():
         logger.warning("Initial advertisement broadcast FAILED. Check logs and funding.")
 
-    # 6. Start background threads
     logger.info("Starting background threads...")
     stamper_thread = threading.Thread(target=sensor_and_stamp_loop, name="StamperThread", daemon=True)
     stamper_thread.start()
@@ -179,7 +176,6 @@ if __name__ == "__main__":
     adv_thread = threading.Thread(target=advertisement_loop, name="AdvertiserThread", daemon=True)
     adv_thread.start()
     
-    # 7. Start the Flask API server (this is the main thread's blocking call)
     logger.info(f"Starting Flask API server on http://[{config.DEVICE_IPV6_ADDRESS}]:{config.DEVICE_PORT} (listening on [::])")
     try:
         app.run(host="::", port=config.DEVICE_PORT, debug=False)

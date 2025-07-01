@@ -8,7 +8,7 @@ from typing import List
 import uuid
 import secrets
 import struct
-
+import threading
 from bsvlib import PrivateKey, PublicKey, TxOutput, TxInput, Unspent
 from bsvlib.script import Script
 from bsvlib.script.type import P2pkhScriptType
@@ -133,62 +133,80 @@ def broadcast_bsv_transaction_bitails(raw_tx_hex: str) -> str | None:
         logger.exception(f"[BSV] Unexpected error in broadcast_bsv_transaction_bitails: {e}")
     return None
 
-def create_and_broadcast_op_return_tx(priv_key_obj: PrivateKey, pub_key_obj: PublicKey, source_locking_script_hex: str, op_return_data: bytes) -> str | None:
-    source_address_str = pub_key_obj.address() 
-    estimated_tx_size = 148 + (9 + len(op_return_data)) + 34 + 10 
-    min_fee_needed = int(estimated_tx_size * config.BSV_FEE_SATOSHIS_PER_BYTE) or 1
+def create_and_broadcast_op_return_tx(lock: threading.Lock, priv_key_obj: PrivateKey, pub_key_obj: PublicKey, source_locking_script_hex: str, op_return_data: bytes) -> str | None:
+    """
+    Thread-safe function to create, sign, and broadcast a transaction with an OP_RETURN.
+    It acquires a lock to prevent UTXO race conditions between threads.
+    """
     
-    logger.info(f"[BSV] Attempting to create OP_RETURN for {source_address_str}. Estimated fee: {min_fee_needed} sats.")
-    
-    available_unspents, total_sats = find_spendable_utxos_bitails(
-        source_address_str, source_locking_script_hex, [priv_key_obj] 
-    )
+    with lock:
+        # The lock is now acquired. Only one thread can execute this code block at a time.
+        logger.info("[BSV_LOCK] Acquired transaction lock.")
+        
+        source_address_str = pub_key_obj.address() 
+        estimated_tx_size = 148 + (9 + len(op_return_data)) + 34 + 10 
+        min_fee_needed = int(estimated_tx_size * config.BSV_FEE_SATOSHIS_PER_BYTE) or 1
+        
+        logger.info(f"[BSV] Attempting to create OP_RETURN for {source_address_str}. Estimated fee: {min_fee_needed} sats.")
+        
+        # This UTXO fetch is now protected by the lock.
+        available_unspents, total_sats = find_spendable_utxos_bitails(
+            source_address_str, source_locking_script_hex, [priv_key_obj] 
+        )
 
-    if not available_unspents or total_sats < min_fee_needed:
-        logger.warning(f"[BSV] Insufficient funds. Available: {total_sats}, Need: {min_fee_needed}. Please fund {source_address_str}")
-        return None
+        if not available_unspents or total_sats < min_fee_needed:
+            logger.warning(f"[BSV] Insufficient funds. Available: {total_sats}, Need: {min_fee_needed}. Please fund {source_address_str}")
+            logger.info("[BSV_LOCK] Releasing transaction lock (insufficient funds).")
+            return None
 
-    available_unspents.sort(key=lambda u: u.satoshi)
-    selected_unspents: list[Unspent] = []; sats_in_selected = 0
-    for utxo in available_unspents:
-        selected_unspents.append(utxo); sats_in_selected += utxo.satoshi
-        if sats_in_selected >= min_fee_needed: break 
-    
-    if sats_in_selected < min_fee_needed:
-        logger.error(f"[BSV] Could not select enough UTXOs. Selected: {sats_in_selected}, Need: {min_fee_needed}")
-        return None
+        # Simple coin selection
+        available_unspents.sort(key=lambda u: u.satoshi)
+        selected_unspents: list[Unspent] = []; sats_in_selected = 0
+        for utxo in available_unspents:
+            selected_unspents.append(utxo)
+            sats_in_selected += utxo.satoshi
+            if sats_in_selected >= min_fee_needed: break 
+        
+        if sats_in_selected < min_fee_needed:
+            logger.error(f"[BSV] Could not select enough UTXOs. Selected: {sats_in_selected}, Need: {min_fee_needed}")
+            logger.info("[BSV_LOCK] Releasing transaction lock (UTXO selection failed).")
+            return None
 
-    try:
-        if not isinstance(op_return_data, bytes):
-            raise ValueError(f"op_return_data must be bytes, got {type(op_return_data)}")
-        
-        script_bytes_list = [b'\x00', b'\x6a']
-        data_len = len(op_return_data)
-        
-        if data_len <= 75: script_bytes_list.append(bytes([data_len])) 
-        elif data_len <= 255: script_bytes_list.extend([b'\x4c', bytes([data_len])]) 
-        elif data_len <= 65535: script_bytes_list.extend([b'\x4d', struct.pack('<H', data_len)]) 
-        else: script_bytes_list.extend([b'\x4e', struct.pack('<I', data_len)])
-        
-        script_bytes_list.append(op_return_data)
-        serialized_script_bytes = b''.join(script_bytes_list)
-        op_return_script = Script(serialized_script_bytes)
+        try:
+            if not isinstance(op_return_data, bytes):
+                raise ValueError(f"op_return_data must be bytes, got {type(op_return_data)}")
+            
+            # Manual OP_RETURN script serialization
+            script_bytes_list = [b'\x00', b'\x6a']
+            data_len = len(op_return_data)
+            if data_len <= 75: script_bytes_list.append(bytes([data_len])) 
+            elif data_len <= 255: script_bytes_list.extend([b'\x4c', bytes([data_len])]) 
+            elif data_len <= 65535: script_bytes_list.extend([b'\x4d', struct.pack('<H', data_len)]) 
+            else: script_bytes_list.extend([b'\x4e', struct.pack('<I', data_len)])
+            script_bytes_list.append(op_return_data)
+            serialized_script_bytes = b''.join(script_bytes_list)
+            op_return_script = Script(serialized_script_bytes)
 
-        outputs_for_tx = [TxOutput(out=op_return_script, satoshi=0)] 
-        
-        tx_obj = Transaction(tx_outputs=outputs_for_tx, fee_rate=config.BSV_FEE_SATOSHIS_PER_BYTE)
-        tx_obj.add_inputs(selected_unspents)
-        tx_obj.add_change(change_address=source_address_str)
-        tx_obj.sign() 
-        
-        logger.info(f"[BSV] TX constructed. Size: {len(tx_obj.serialize())} bytes. Fee: {tx_obj.fee()} sats.")
-        logger.debug(f"[BSV RAW TX HEX TO BROADCAST]: {tx_obj.raw()}")
-        
-        return broadcast_bsv_transaction_bitails(tx_obj.raw())
-    except Exception as e:
-        logger.exception(f"[BSV] Error during OP_RETURN transaction creation/signing: {e}")
-        return None
-
+            outputs_for_tx = [TxOutput(out=op_return_script, satoshi=0)] 
+            
+            tx_obj = Transaction(tx_outputs=outputs_for_tx, fee_rate=config.BSV_FEE_SATOSHIS_PER_BYTE)
+            tx_obj.add_inputs(selected_unspents)
+            tx_obj.add_change(change_address=source_address_str)
+            tx_obj.sign() 
+            
+            logger.info(f"[BSV] TX constructed. Size: {len(tx_obj.serialize())} bytes. Fee: {tx_obj.fee()} sats.")
+            logger.debug(f"[BSV RAW TX HEX TO BROADCAST]: {tx_obj.raw()}")
+            
+            # The broadcast is also within the lock, ensuring the whole process is atomic.
+            txid = broadcast_bsv_transaction_bitails(tx_obj.raw())
+            
+            logger.info("[BSV_LOCK] Releasing transaction lock (broadcast successful).")
+            return txid
+            
+        except Exception as e:
+            logger.exception(f"[BSV] Error during OP_RETURN transaction creation/signing: {e}")
+            logger.info("[BSV_LOCK] Releasing transaction lock (exception).")
+            return None
 def parse_op_return_data_from_hex(op_return_script_hex: str) -> bytes | None:
     """
     Parses data from an OP_RETURN script hex by manually handling pushdata opcodes.
