@@ -9,7 +9,6 @@ logger = logging.getLogger(__name__)
 
 # --- CONFIGURATION LOADING ---
 
-# Determine the project root directory to find the config file
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_FILE_PATH = os.path.join(PROJECT_ROOT, 'config.ini')
 
@@ -44,6 +43,10 @@ try:
 except (configparser.NoSectionError, configparser.NoOptionError) as e:
     logger.critical(f"CRITICAL: Missing required setting in 'config.ini'. Error: {e}")
     sys.exit(1)
+
+
+# --- API ENDPOINTS (Not user-configurable, but defined here for consistency) ---
+BITAILS_API_BASE_URL = "https://api.bitails.io"
 
 
 # --- PROTOCOL CONSTANTS (These are not user-configurable) ---
