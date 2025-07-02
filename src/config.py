@@ -1,28 +1,57 @@
 # sensora_agent/src/config.py
 
-# --- DEVICE CONFIG ---
-DEVICE_IPV6_ADDRESS: str = "2a01:4f8:1c1b:83c3::1" 
-DEVICE_PORT: int = 8080 
-DEVICE_WIF: str = "KyuXbxKpRugMxJzHhJq4oUYJaxmFBnSLDNtjoccakDC9ZRMZzcS5"
-DEVICE_GEOHASH: str = "u4pruydq"
+import configparser
+import os
+import sys
+import logging
 
-# --- PRICING & TIMING ---
-PRICE_SATS_PER_READING: int = 5
-DATA_CAPTURE_INTERVAL_SECONDS: int = 300 
-ADVERTISEMENT_INTERVAL_SECONDS: int = 12 * 3600 
-BSV_FEE_SATOSHIS_PER_BYTE: float = 0.02
-TOKEN_EXPIRY_SECONDS = 3600 # 1 hour
-TOKEN_MAX_USAGE = 3 # Allow a few downloads per token
+logger = logging.getLogger(__name__)
 
-# --- PROTOCOL CONSTANTS ---
+# --- CONFIGURATION LOADING ---
+
+# Determine the project root directory to find the config file
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CONFIG_FILE_PATH = os.path.join(PROJECT_ROOT, 'config.ini')
+
+if not os.path.exists(CONFIG_FILE_PATH):
+    logger.critical(f"CRITICAL: Configuration file not found at {CONFIG_FILE_PATH}.")
+    logger.critical("Please copy 'config.ini.example' to 'config.ini' and fill in your details.")
+    sys.exit(1)
+
+parser = configparser.ConfigParser()
+parser.read(CONFIG_FILE_PATH)
+
+# --- Expose Settings ---
+try:
+    # [Device]
+    DEVICE_IPV6_ADDRESS = parser.get('Device', 'ipv6_address')
+    DEVICE_PORT = parser.getint('Device', 'port')
+    DEVICE_WIF = parser.get('Device', 'wif')
+
+    # [Location]
+    DEVICE_GEOHASH = parser.get('Location', 'geohash', fallback=None)
+
+    # [Service]
+    PRICE_SATS_PER_READING = parser.getint('Service', 'price_sats')
+    DATA_CAPTURE_INTERVAL_SECONDS = parser.getint('Service', 'data_capture_interval_seconds')
+    ADVERTISEMENT_INTERVAL_SECONDS = parser.getint('Service', 'advertisement_interval_seconds')
+    BSV_FEE_SATOSHIS_PER_BYTE = parser.getfloat('Service', 'bsv_fee_rate_sats_per_byte')
+
+    # [Token]
+    TOKEN_EXPIRY_SECONDS = parser.getint('Token', 'expiry_seconds')
+    TOKEN_MAX_USAGE = parser.getint('Token', 'max_usage')
+
+except (configparser.NoSectionError, configparser.NoOptionError) as e:
+    logger.critical(f"CRITICAL: Missing required setting in 'config.ini'. Error: {e}")
+    sys.exit(1)
+
+
+# --- PROTOCOL CONSTANTS (These are not user-configurable) ---
 DATA_TYPE_TEMP_HUMID: int = 0x0001
 SENSORA_PREFIX: bytes = b'SNSR'
 SENSORA_VERSION: int = 0x01
 SENSORA_DEVICE_ID_TYPE_IPV6_FULL: int = 0x01
 ADVERTISEMENT_PREFIX: bytes = b'SNSRADV1'
 
-# --- DATABASE ---
-DATABASE_NAME = "sensora_device.db" # Assumes DB is in the same root dir as app.py
-
-# --- BITAILS API ---
-BITAILS_API_BASE_URL = "https://api.bitails.io"
+# --- DATABASE (Not user-configurable) ---
+DATABASE_NAME = os.path.join(PROJECT_ROOT, "sensora_device.db")

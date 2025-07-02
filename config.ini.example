@@ -1,0 +1,33 @@
+[Device]
+# The globally routable IPv6 address of this sensor agent.
+ipv6_address = 2a01:4f8:1c1b:83c3::1
+port = 8080
+
+# The Wallet Import Format (WIF) private key for this device.
+# This wallet needs to be funded with a small amount of BSV for transaction fees.
+# WARNING: Do not commit your actual WIF to public repositories.
+wif = KyuXbx.............
+
+[Location]
+# Optional: A Geohash string representing the sensor's location (max 12 chars).
+# Can be generated at https://www.movable-type.co.uk/scripts/geohash.html
+geohash = u4pruydq
+
+[Service]
+# The price in satoshis for a single data reading.
+price_sats = 5
+
+# How often the sensor captures and stamps data, in seconds.
+data_capture_interval_seconds = 300
+
+# How often the sensor broadcasts its advertisement on-chain, in seconds.
+advertisement_interval_seconds = 43200 ; 12 hours
+
+# The fee rate for BSV transactions in satoshis per byte.
+bsv_fee_rate_sats_per_byte = 0.02
+
+[Token]
+# How long a data access token is valid, in seconds.
+expiry_seconds = 3600
+# How many times a token can be used to download data.
+max_usage = 3
