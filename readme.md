@@ -1,10 +1,103 @@
 # Sensōra - A Peer-to-Peer IoT Data Marketplace
 
-Sensōra is a proof-of-concept project demonstrating a trustless, peer-to-peer (P2P) marketplace for Internet of Things (IoT) data, built on the unique capabilities of the **BSV blockchain**, **IPv6**, and direct device-to-consumer micropayments.
+# Sensōra Agent - An Autonomous IoT Data Provider
 
-The core vision is to empower every IoT sensor to become an autonomous economic agent, able to directly sell its data with verifiable integrity, without relying on centralized intermediary platforms.
+This repository contains the complete source code for the **Sensōra Agent**, a Python application designed to run on IoT devices (like a Raspberry Pi or any Linux server). It empowers any connected sensor to become an autonomous economic agent on the BSV blockchain.
+
+The agent periodically captures sensor data, anchors a cryptographic proof of that data on-chain, and sells access to the raw data for BSV micropayments. It is a core component of the decentralized **Sensōra IoT Data Marketplace**.
+
+This agent works in conjunction with the [Sensōra Indexer & Registry](https://github.com/your_username/sensora_indexer) (<- **UPDATE THIS LINK**), which discovers and lists active sensors.
+
+## Core Features
+
+- **Autonomous Operation:** Runs as a background service, requiring no manual intervention.
+- **On-Chain Data Stamping:** Creates immutable, timestamped proofs of sensor data on the BSV blockchain using `OP_RETURN`.
+- **On-Chain Service Advertisement:** Periodically broadcasts its services (data types offered, price, location) on-chain, making it discoverable by the network.
+- **Direct Monetization:** Sells data directly to consumers for BSV micropayments.
+- **Secure Data Access:** Implements a token-based access system to ensure only verified payers can retrieve data.
+- **Persistent State:** Uses a local SQLite database to track all readings, payments, and access tokens, ensuring resilience against restarts.
+  -.
+
+## The On-Chain Protocols
+
+The agent uses two distinct `OP_RETURN` protocols to communicate on the BSV blockchain.
+
+### 1. Data Stamp (`SNSR`)
+
+Broadcast for every new sensor reading to provide proof of integrity.
+
+- **Prefix:** `SNSR` (ASCII)
+- **Payload Structure:** `[Prefix (4B)] [Version (1B)] [DeviceID_Type (1B)] [DeviceID (16B)] [Reading_Timestamp (8B)] [Data_Type_Code (2B)] [Data_Hash (32B)]`
+
+### 2. Advertisement (`SNSRADV1`)
+
+Broadcast periodically to announce the sensor's services to the network.
+
+- **Prefix:** `SNSRADV1` (ASCII)
+- **Payload Structure:** `[Prefix (8B)] [DeviceID_Type (1B)] [DeviceID (16B)] [Port (2B)] [GeohashLen (1B)] [Geohash (Var)] [#Services (1B)] [Service1_Type (2B)] [Service1_Price (4B)] ... [Timestamp (8B)]`
+
+## Getting Started
+
+### Prerequisites
+
+- A Linux-based device (e.g., Raspberry Pi, cloud VM) with Python 3.10+.
+- A globally routable IPv6 address for the device.
+- A funded BSV wallet.
+
+### Installation & Configuration
+
+1.  **Clone the Repository:**
+
+    ```bash
+    git clone https://github.com/your_username/sensor_agent.git
+    cd sensor_agent
+    ```
+
+2.  **Set up Virtual Environment:**
+
+    ```bash
+    python3 -m venv venv
+    source venv/bin/activate
+    ```
+
+3.  **Install Dependencies:**
+
+    ```bash
+    pip install -r requirements.txt
+    # (You will need to create this file: pip freeze > requirements.txt)
+    # Dependencies: Flask, requests, bsvlib
+    ```
+
+4.  **Configure the Agent:**
+    - Copy the example configuration file: `cp config.ini.example config.ini`
+    - **Edit `config.ini`** with your details:
+      - `ipv6_address`: The public IPv6 address of your device.
+      - `port`: The port for the API server (e.g., `8080`).
+      - `wif`: The BSV Wallet Import Format (WIF) private key. **This wallet must be funded** with BSV to pay for transaction fees.
+      - `geohash`: An optional geohash string for your sensor's location.
+
+### Running the Agent
+
+With your virtual environment activated, run the main application from the project root directory:
+
+```bash
+python app.py
+```
+
+The agent will initialize its database (`sensora_device.db`), start its background threads for stamping and advertising, and launch the Flask web server. You can monitor its activity via the console logs and access its dashboard in a web browser at `http://[YOUR_DEVICE_IPV6]:8080/`.
+
+## API Endpoints
+
+The agent serves a simple API:
+
+- `GET /`: A web dashboard showing sensor status.
+- `GET /price`: Provides payment information for the latest data reading.
+- `POST /claim_reading/<reading_id>`: Allows a consumer to claim data after making a payment.
+- `GET /fetch_data/<reading_id>?token=...`: Serves the raw data if a valid access token is provided.
+  The core vision is to empower every IoT sensor to become an autonomous economic agent, able to directly sell its data with verifiable integrity, without relying on centralized intermediary platforms.
 
 **This repository contains the working MVP code for:**
+
 1.  A Python-based **Sensor Agent** that simulates a sensor, anchors data proofs on-chain, serves data for a price, and verifies payments.
 2.  A Python-based **Consumer Client** that discovers (manually for now), pays for, and retrieves data from the Sensor Agent.
 
@@ -19,15 +112,14 @@ The project demonstrates a complete, end-to-end data transaction cycle:
 5.  **Token-based Delivery:** Upon successful verification, the sensor issues a short-lived, single-use access token. The consumer uses this token to download the raw sensor data directly from the sensor's IPv6 address.
 6.  **Verification:** The consumer can cryptographically verify the integrity of the received data by hashing it and comparing the result to the corresponding data proof previously stamped on the BSV blockchain.
 
- 
 <!-- You can create and add a diagram here. I've used a placeholder link. -->
 
 ## Key Technologies
 
-*   **BSV Blockchain:** Used for its unparalleled scalability for data transactions, enabling ultra-low-cost micropayments and on-chain data anchoring (proofs and advertisements).
-*   **IPv6:** Provides a globally unique, routable address for every sensor, enabling true P2P communication without the need for centralized servers or NAT traversal workarounds.
-*   **Python:** The agent and client are built in Python 3, using `bsvlib` for BSV interactions and `Flask` for the device's API server.
-*   **SQLite:** Used for persistent storage of sensor readings and access tokens on the device.
+- **BSV Blockchain:** Used for its unparalleled scalability for data transactions, enabling ultra-low-cost micropayments and on-chain data anchoring (proofs and advertisements).
+- **IPv6:** Provides a globally unique, routable address for every sensor, enabling true P2P communication without the need for centralized servers or NAT traversal workarounds.
+- **Python:** The agent and client are built in Python 3, using `bsvlib` for BSV interactions and `Flask` for the device's API server.
+- **SQLite:** Used for persistent storage of sensor readings and access tokens on the device.
 
 ## On-Chain Data Protocols
 
@@ -37,76 +129,82 @@ Sensōra defines two distinct `OP_RETURN` protocols for its on-chain interaction
 
 This transaction is broadcast periodically by the sensor to announce its existence and services. This allows indexers (like `bitails.io`) to build a searchable registry of available sensors.
 
-*   **Prefix:** `SNSRADV1` (ASCII)
-*   **Example TXID:** [`50e1adefee49aa48cde515211b765ed755ce22a51d17c6cd85f766501cfa10d8`](https://bitails.io/tx/50e1adefee49aa48cde515211b765ed755ce22a51d17c6cd85f766501cfa10d8)
-*   **Payload Structure:**
+- **Prefix:** `SNSRADV1` (ASCII)
+- **Example TXID:** [`50e1adefee49aa48cde515211b765ed755ce22a51d17c6cd85f766501cfa10d8`](https://bitails.io/tx/50e1adefee49aa48cde515211b765ed755ce22a51d17c6cd85f766501cfa10d8)
+- **Payload Structure:**
 
-| Field | Size (Bytes) | Data Type | Description | Example Value |
-|---|---|---|---|---|
-| Prefix | 8 | ASCII | `SNSRADV1` | `534e535241445631` |
-| Device ID Type | 1 | Unsigned Byte | `0x01` for Full IPv6 | `01` |
-| Device ID | 16 | Bytes | The sensor's IPv6 address | `2a01:4f8:1c1b:83c3::1` |
-| Port | 2 | Unsigned Short (BE) | API listener port | `8080` |
-| Geohash Length| 1 | Unsigned Byte | Length of the Geohash string | `8` |
-| Geohash | (variable) | ASCII | Sensor's location | `u4pruydq` |
-| # of Services | 1 | Unsigned Byte | Number of data types offered | `1` |
-| Data Type 1 | 2 | Unsigned Short (BE) | Code for the service (`0x0001` = Temp/Humid) | `0001` |
-| Price 1 (Sats)| 4 | Unsigned Int (BE) | Price in satoshis for this service | `150` |
-| ... | ... | ... | *(Repeat for more services)* | |
-| Timestamp | 8 | Unsigned Long Long (BE) | Unix timestamp of the advertisement | (e.g. `1751139792`) |
+| Field          | Size (Bytes) | Data Type               | Description                                  | Example Value           |
+| -------------- | ------------ | ----------------------- | -------------------------------------------- | ----------------------- |
+| Prefix         | 8            | ASCII                   | `SNSRADV1`                                   | `534e535241445631`      |
+| Device ID Type | 1            | Unsigned Byte           | `0x01` for Full IPv6                         | `01`                    |
+| Device ID      | 16           | Bytes                   | The sensor's IPv6 address                    | `2a01:4f8:1c1b:83c3::1` |
+| Port           | 2            | Unsigned Short (BE)     | API listener port                            | `8080`                  |
+| Geohash Length | 1            | Unsigned Byte           | Length of the Geohash string                 | `8`                     |
+| Geohash        | (variable)   | ASCII                   | Sensor's location                            | `u4pruydq`              |
+| # of Services  | 1            | Unsigned Byte           | Number of data types offered                 | `1`                     |
+| Data Type 1    | 2            | Unsigned Short (BE)     | Code for the service (`0x0001` = Temp/Humid) | `0001`                  |
+| Price 1 (Sats) | 4            | Unsigned Int (BE)       | Price in satoshis for this service           | `150`                   |
+| ...            | ...          | ...                     | _(Repeat for more services)_                 |                         |
+| Timestamp      | 8            | Unsigned Long Long (BE) | Unix timestamp of the advertisement          | (e.g. `1751139792`)     |
 
 ### 2. Data Stamp Protocol (`SNSR`)
 
 This transaction is broadcast for every new sensor reading to provide an immutable proof of integrity.
 
-*   **Prefix:** `SNSR` (ASCII)
-*   **Payload Structure:**
+- **Prefix:** `SNSR` (ASCII)
+- **Payload Structure:**
 
-| Field | Size (Bytes) | Data Type | Description |
-|---|---|---|---|
-| Prefix | 4 | ASCII | `SNSR` |
-| Version | 1 | Unsigned Byte | Protocol version (`0x01`) |
-| Device ID Type| 1 | Unsigned Byte | `0x01` for Full IPv6 |
-| Device ID | 16 | Bytes | The sensor's IPv6 address |
-| Reading ID | 8 | Unsigned Long Long (BE) | Unix timestamp of the reading |
-| Data Type | 2 | Unsigned Short (BE) | Code for this specific reading's type |
-| Data Hash | 32 | Bytes | SHA-256 hash of `timestamp:value1:value2...` |
+| Field          | Size (Bytes) | Data Type               | Description                                  |
+| -------------- | ------------ | ----------------------- | -------------------------------------------- |
+| Prefix         | 4            | ASCII                   | `SNSR`                                       |
+| Version        | 1            | Unsigned Byte           | Protocol version (`0x01`)                    |
+| Device ID Type | 1            | Unsigned Byte           | `0x01` for Full IPv6                         |
+| Device ID      | 16           | Bytes                   | The sensor's IPv6 address                    |
+| Reading ID     | 8            | Unsigned Long Long (BE) | Unix timestamp of the reading                |
+| Data Type      | 2            | Unsigned Short (BE)     | Code for this specific reading's type        |
+| Data Hash      | 32           | Bytes                   | SHA-256 hash of `timestamp:value1:value2...` |
 
 ## Getting Started
 
 ### Prerequisites
-*   Python 3.10+
-*   An IPv6-capable server (e.g., a cloud VM or a local machine with IPv6)
-*   A funded BSV wallet to provide WIFs for the sensor agent and consumer client.
+
+- Python 3.10+
+- An IPv6-capable server (e.g., a cloud VM or a local machine with IPv6)
+- A funded BSV wallet to provide WIFs for the sensor agent and consumer client.
 
 ### Sensor Agent Setup
+
 1.  Clone this repository.
 2.  Set up a Python virtual environment: `python3 -m venv venv && source venv/bin/activate`
 3.  Install dependencies: `pip install -r requirements.txt` (You'll need to create this file with `bsvlib`, `requests`, `Flask`).
 4.  Edit `sensor_agent.py`:
-    *   Set `DEVICE_WIF` to a WIF that you control.
-    *   Ensure `DEVICE_IPV6_ADDRESS` matches your server's IPv6.
-    *   Adjust `DEVICE_GEOHASH` and other settings as needed.
+    - Set `DEVICE_WIF` to a WIF that you control.
+    - Ensure `DEVICE_IPV6_ADDRESS` matches your server's IPv6.
+    - Adjust `DEVICE_GEOHASH` and other settings as needed.
 5.  Fund the `DEVICE_PAYMENT_ADDRESS` (which is derived from the WIF) with a small amount of BSV to cover transaction fees.
 6.  Run the agent: `python sensor_agent.py`
 7.  Access the web dashboard in your browser at `http://[YOUR_SERVER_IPV6]:8080/`.
 
 ### Consumer Client Usage
+
 1.  The `client.py` script demonstrates how to purchase data.
 2.  Ensure your consumer wallet has funds.
 3.  Run the client via command line:
     ```bash
     python client.py <SENSOR_IPV6> <PORT> <READING_ID> <YOUR_CONSUMER_WIF>
     ```
-    *   `<READING_ID>` can be obtained from the sensor agent's web dashboard or its `/price` API endpoint.
+    - `<READING_ID>` can be obtained from the sensor agent's web dashboard or its `/price` API endpoint.
 
 ## Future Work
+
 This MVP is the foundation for a much larger vision. Future steps include:
--   **Automated Discovery:** Enhancing `bitails.io` (or another indexer) to parse `SNSRADV1` transactions and provide a queryable sensor registry API.
--   **Hardware Integration:** Running the agent on low-cost hardware like a Raspberry Pi with real sensors.
--   **Advanced Encryption:** Offering optional end-to-end encryption for sensitive data using public keys provided by the consumer.
--   **Batching/Merkle Proofs:** Reducing on-chain costs for high-frequency sensors by publishing a Merkle root of many data hashes.
--   **User-Friendly Interfaces:** Building more advanced web and command-line tools for both sensor owners and data consumers.
+
+- **Automated Discovery:** Enhancing `bitails.io` (or another indexer) to parse `SNSRADV1` transactions and provide a queryable sensor registry API.
+- **Hardware Integration:** Running the agent on low-cost hardware like a Raspberry Pi with real sensors.
+- **Advanced Encryption:** Offering optional end-to-end encryption for sensitive data using public keys provided by the consumer.
+- **Batching/Merkle Proofs:** Reducing on-chain costs for high-frequency sensors by publishing a Merkle root of many data hashes.
+- **User-Friendly Interfaces:** Building more advanced web and command-line tools for both sensor owners and data consumers.
 
 ---
-*This project is in active development. We welcome feedback and ideas.*
+
+_This project is in active development. We welcome feedback and ideas._
