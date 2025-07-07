@@ -1,28 +1,29 @@
-# sensora_agent/src/routes.py
+# sensor_agent/src/routes.py
 
 import time
 import json
 import logging
 import sqlite3
-from flask import Flask, request, jsonify, abort, render_template
+from flask import request, jsonify, abort, render_template
 from werkzeug.exceptions import HTTPException
 
 # Import from our refactored modules
-from . import config
-from . import database
-from . import bsv_utils
-from . import reputation
+from . import config, database, bsv_utils, reputation
 
 logger = logging.getLogger(__name__)
 
-# --- Custom Exception and Error Handlers ---
-
+# --- Custom Exception Class ---
 class PaymentRequiredError(HTTPException):
     code = 402
     description = 'Payment for this resource has not been detected.'
 
-def register_error_handlers(app):
-    """Registers custom and standard HTTP error handlers for the Flask app."""
+# --- Route Registration Function ---
+def register_routes(app, device_state):
+    """
+    Registers all Flask error handlers and routes with the application.
+    """
+
+    # --- Error Handlers ---
     @app.errorhandler(PaymentRequiredError)
     def handle_payment_required(error: PaymentRequiredError):
         response = jsonify({"error": "Payment Required", "message": error.description, "status_code": error.code})
@@ -31,7 +32,7 @@ def register_error_handlers(app):
 
     @app.errorhandler(409)
     def conflict_error_handler(error: HTTPException):
-        desc = getattr(error, 'description', "A conflict occurred with the current state of the resource.")
+        desc = getattr(error, 'description', "A conflict occurred.")
         response = jsonify({"error": "Conflict", "message": desc, "status_code": 409})
         response.status_code = 409
         return response
@@ -53,28 +54,12 @@ def register_error_handlers(app):
     @app.errorhandler(500)
     def internal_server_error_handler(error: HTTPException):
         desc = getattr(error, 'description', "An internal server error occurred.")
-        logger.exception(f"SERVER ERROR 500: Unhandled exception caught by error handler: {error}")
+        logger.exception(f"SERVER ERROR 500: {error}")
         response = jsonify({"error": "Internal Server Error", "message": desc, "status_code": 500})
         response.status_code = 500
         return response
 
-
-def register_error_handlers(app):
-    @app.errorhandler(PaymentRequiredError)
-    def handle_payment_required(error):
-        return jsonify({"error": "Payment Required", "message": error.description}), 402
-    # Add other handlers (404, 500, etc.) as needed
-    @app.errorhandler(404)
-    def not_found(error):
-        return jsonify({"error": "Not Found", "message": "The requested resource was not found."}), 404
-    @app.errorhandler(500)
-    def server_error(error):
-        logger.exception("An internal server error occurred")
-        return jsonify({"error": "Internal Server Error"}), 500
-
-# --- Route Definitions ---
-def register_routes(app, device_state):
-    """Registers all Flask routes with the application."""
+    # --- Route Definitions ---
 
     @app.route("/")
     def dashboard():
@@ -164,8 +149,6 @@ def register_routes(app, device_state):
             "onchain_proof_txid": reading_data["onchain_proof_txid"]
         })
 
-    # --- START FINAL CORRECTION ---
-    # The new /status route must be defined INSIDE this function.
     @app.route('/status', methods=['GET'])
     def get_agent_status():
         """Returns the agent's current operational status and reputation metrics."""
@@ -177,14 +160,3 @@ def register_routes(app, device_state):
             "reputation": reputation_data
         }
         return jsonify(status_payload)
-    # --- END FINAL CORRECTION ---
-    """Returns the agent's current operational status and reputation metrics."""
-    # This uses the reputation module we already built for the agent's own dashboard
-    reputation_data = reputation.calculate_reputation_score()
-    
-    status_payload = {
-        "status": "online",
-        "timestamp_utc": int(time.time()),
-        "reputation": reputation_data
-    }
-    return jsonify(status_payload)
