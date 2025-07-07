@@ -162,7 +162,6 @@ if __name__ == "__main__":
     logger.info(f"Device Initialized. Payment Address: {device_state.address}")
     app = Flask(__name__, template_folder='templates')
     
-    routes.register_error_handlers(app)
     routes.register_all_routes(app, device_state)
     logger.info("Broadcasting initial sensor advertisement...")
     if not broadcast_advertisement_tx():
