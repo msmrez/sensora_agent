@@ -86,7 +86,7 @@ def create_advertisement_op_return_payload() -> bytes | None:
             service_bytes_list.append(struct.pack('>I', service["price_sats"]))
         
         all_service_bytes = b''.join(service_bytes_list)
-        timestamp_bytes = struct.pack('>I', int(time.time()))
+        timestamp_bytes = struct.pack('>Q', int(time.time()))
 
         op_return_parts = [
             config.ADVERTISEMENT_PREFIX,
