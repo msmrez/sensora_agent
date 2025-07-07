@@ -1,4 +1,4 @@
-# sensor_agent/src/routes.py
+# sensora_agent/src/routes.py
 
 import time
 import json
@@ -8,7 +8,10 @@ from flask import request, jsonify, abort, render_template
 from werkzeug.exceptions import HTTPException
 
 # Import from our refactored modules
-from . import config, database, bsv_utils, reputation
+from . import config
+from . import database
+from . import bsv_utils
+from . import reputation
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +20,7 @@ class PaymentRequiredError(HTTPException):
     code = 402
     description = 'Payment for this resource has not been detected.'
 
-# --- Route Registration Function ---
+# --- Main Registration Function ---
 def register_routes(app, device_state):
     """
     Registers all Flask error handlers and routes with the application.
@@ -112,7 +115,7 @@ def register_routes(app, device_state):
         
         payment_verified, _ = bsv_utils.check_payment_on_chain(reading_id, device_state.address, device_state.locking_script_hex, consumer_payment_txid)
         if not payment_verified:
-            raise PaymentRequiredError("Payment verification failed.")
+            raise PaymentRequiredError("Payment verification failed for the specified reading ID and payment TXID.")
 
         access_token = bsv_utils.generate_access_token()
         expiry = int(time.time()) + config.TOKEN_EXPIRY_SECONDS
@@ -122,7 +125,7 @@ def register_routes(app, device_state):
             database.update_reading_as_paid(reading_id, consumer_payment_txid)
             return jsonify({"message": "Access token generated.", "access_token": access_token, "data_endpoint": f"/fetch_data/{reading_id}", "expires_at": expiry}), 201
         except sqlite3.IntegrityError:
-            abort(409, "Token for this payment may have already been claimed.")
+            abort(409, "Token for this payment has already been claimed.")
         except Exception:
             logger.exception("Server error while issuing token.")
             abort(500)
