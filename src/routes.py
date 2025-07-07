@@ -183,3 +183,17 @@ def register_routes(app, device_state):
             "data_type_code": reading_data["data_type_code"],
             "onchain_proof_txid": reading_data["onchain_proof_txid"]
         })
+
+
+@app.route('/status', methods=['GET'])
+def get_agent_status():
+    """Returns the agent's current operational status and reputation metrics."""
+    # This uses the reputation module we already built for the agent's own dashboard
+    reputation_data = reputation.calculate_reputation_score()
+    
+    status_payload = {
+        "status": "online",
+        "timestamp_utc": int(time.time()),
+        "reputation": reputation_data
+    }
+    return jsonify(status_payload)
