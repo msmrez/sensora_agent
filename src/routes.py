@@ -58,31 +58,36 @@ def register_error_handlers(app):
         response.status_code = 500
         return response
 
+
+def register_error_handlers(app):
+    @app.errorhandler(PaymentRequiredError)
+    def handle_payment_required(error):
+        return jsonify({"error": "Payment Required", "message": error.description}), 402
+    # Add other handlers (404, 500, etc.) as needed
+    @app.errorhandler(404)
+    def not_found(error):
+        return jsonify({"error": "Not Found", "message": "The requested resource was not found."}), 404
+    @app.errorhandler(500)
+    def server_error(error):
+        logger.exception("An internal server error occurred")
+        return jsonify({"error": "Internal Server Error"}), 500
+
 # --- Route Definitions ---
-
 def register_routes(app, device_state):
-    """
-    Registers all Flask routes with the application.
-    Passes in `device_state` to access shared state like keys and addresses.
-    """
+    """Registers all Flask routes with the application."""
 
-    @app.route("/", methods=['GET']) 
+    @app.route("/")
     def dashboard():
         readings = database.get_latest_readings()
         tokens = database.get_latest_tokens()
         last_adv_txid = database.get_key_value('last_adv_txid') or "N/A"
-        
-        # --- NEW: Get reputation data ---
         reputation_data = reputation.calculate_reputation_score()
-        
-        # Prepare chart data
         chart_data = { "labels": [], "temp_data": [], "humid_data": [] }
         for reading in reversed(readings):
             if reading.get("paid") and reading.get("sensor_values"):
                 chart_data["labels"].append(time.strftime('%H:%M:%S', time.localtime(reading["reading_id"])))
                 chart_data["temp_data"].append(reading["value_temp"])
                 chart_data["humid_data"].append(reading["value_humid"])
-
         return render_template(
             "index.html", 
             device_ipv6=config.DEVICE_IPV6_ADDRESS,
@@ -100,7 +105,7 @@ def register_routes(app, device_state):
             time=time
         )
 
-    @app.route("/price", methods=['GET'])
+    @app.route("/price")
     def get_price_route():
         latest_id = database.get_latest_reading_id() or int(time.time())
         return jsonify({
@@ -109,41 +114,20 @@ def register_routes(app, device_state):
             "payment_address": device_state.address,
             "payment_instructions": f"Send {config.PRICE_SATS_PER_READING} sats to {device_state.address}. OP_RETURN: 'SENSORA_PAY:{latest_id}'."
         })
-    @app.route("/status", methods=['GET'])
-    def get_status_route():
-        """Returns the current status and reputation of the sensor."""
-        reputation_data = reputation.calculate_reputation_score()
-        
-        status_payload = {
-            "device_id": config.DEVICE_IPV6_ADDRESS,
-            "bsv_address": device_state.address,
-            "status": "online",
-            "timestamp_utc": int(time.time()),
-            "reputation": reputation_data
-        }
-        return jsonify(status_payload)
+
     @app.route("/claim_reading/<int:reading_id>", methods=['POST'])
     def claim_reading_route(reading_id: int):
-        data = request.get_json()
+        data = request.get_json();
         if not data or "payment_txid" not in data:
             abort(400, "Missing 'payment_txid' in JSON body.")
         
-        consumer_payment_txid = data["payment_txid"]
-        logger.info(f"[CLAIM_TOKEN] Attempt to claim reading {reading_id} with payment_txid {consumer_payment_txid[:10]}...")
-
+        consumer_payment_txid = data['payment_txid']
         if not database.reading_exists(reading_id):
             abort(404, f"Reading ID {reading_id} not found.")
-
-        payment_verified, _ = bsv_utils.check_payment_on_chain(
-            reading_id, device_state.address, 
-            device_state.locking_script_hex, specific_txid_to_check=consumer_payment_txid
-        )
-
+        
+        payment_verified, _ = bsv_utils.check_payment_on_chain(reading_id, device_state.address, device_state.locking_script_hex, consumer_payment_txid)
         if not payment_verified:
-            # --- START CORRECTION ---
-            # Instead of abort(402, ...), raise the custom exception
-            raise PaymentRequiredError("Payment verification failed for the specified reading ID and payment TXID.")
-            # --- END CORRECTION ---
+            raise PaymentRequiredError("Payment verification failed.")
 
         access_token = bsv_utils.generate_access_token()
         expiry = int(time.time()) + config.TOKEN_EXPIRY_SECONDS
@@ -151,15 +135,12 @@ def register_routes(app, device_state):
         try:
             database.save_access_token(reading_id, consumer_payment_txid, access_token, expiry, config.TOKEN_MAX_USAGE)
             database.update_reading_as_paid(reading_id, consumer_payment_txid)
-            return jsonify({
-                "message": "Access token generated successfully.", "access_token": access_token,
-                "data_endpoint": f"/fetch_data/{reading_id}", "expires_at": expiry
-            }), 201
+            return jsonify({"message": "Access token generated.", "access_token": access_token, "data_endpoint": f"/fetch_data/{reading_id}", "expires_at": expiry}), 201
         except sqlite3.IntegrityError:
-            abort(409, "Token for this payment has already been claimed.")
+            abort(409, "Token for this payment may have already been claimed.")
         except Exception:
             logger.exception("Server error while issuing token.")
-            abort(500, "Server error issuing token.")
+            abort(500)
 
     @app.route("/fetch_data/<int:reading_id>", methods=['GET'])
     def fetch_data_route(reading_id: int):
@@ -168,7 +149,6 @@ def register_routes(app, device_state):
 
         token_details = database.get_token_details(reading_id, token)
         if not token_details: abort(403, "Invalid or mismatched token.")
-        
         if int(time.time()) >= token_details["expiry_timestamp"]: abort(403, "Token expired.")
         if token_details["usage_count"] >= token_details["max_usage"]: abort(403, "Token usage limit reached.")
         
@@ -184,9 +164,20 @@ def register_routes(app, device_state):
             "onchain_proof_txid": reading_data["onchain_proof_txid"]
         })
 
-
-@app.route('/status', methods=['GET'])
-def get_agent_status():
+    # --- START FINAL CORRECTION ---
+    # The new /status route must be defined INSIDE this function.
+    @app.route('/status', methods=['GET'])
+    def get_agent_status():
+        """Returns the agent's current operational status and reputation metrics."""
+        reputation_data = reputation.calculate_reputation_score()
+        
+        status_payload = {
+            "status": "online",
+            "timestamp_utc": int(time.time()),
+            "reputation": reputation_data
+        }
+        return jsonify(status_payload)
+    # --- END FINAL CORRECTION ---
     """Returns the agent's current operational status and reputation metrics."""
     # This uses the reputation module we already built for the agent's own dashboard
     reputation_data = reputation.calculate_reputation_score()
