@@ -163,8 +163,7 @@ if __name__ == "__main__":
     app = Flask(__name__, template_folder='templates')
     
     routes.register_error_handlers(app)
-    routes.register_routes(app, device_state)
-
+    routes.register_all_routes(app, device_state)
     logger.info("Broadcasting initial sensor advertisement...")
     if not broadcast_advertisement_tx():
         logger.warning("Initial advertisement broadcast FAILED. Check logs and funding.")

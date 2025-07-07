@@ -1,4 +1,4 @@
-# sensora_agent/src/routes.py
+# sensor_agent/src/routes.py
 
 import time
 import json
@@ -7,63 +7,34 @@ import sqlite3
 from flask import request, jsonify, abort, render_template
 from werkzeug.exceptions import HTTPException
 
-# Import from our refactored modules
-from . import config
-from . import database
-from . import bsv_utils
-from . import reputation
+from . import config, database, bsv_utils, reputation
 
 logger = logging.getLogger(__name__)
 
-# --- Custom Exception Class ---
 class PaymentRequiredError(HTTPException):
     code = 402
     description = 'Payment for this resource has not been detected.'
 
-# --- Main Registration Function ---
-def register_routes(app, device_state):
-    """
-    Registers all Flask error handlers and routes with the application.
-    """
+def register_all_routes(app, device_state):
+    """Registers all Flask error handlers and routes with the application."""
 
-    # --- Error Handlers ---
+    # --- Error Handlers (Defined inside the registration function) ---
     @app.errorhandler(PaymentRequiredError)
-    def handle_payment_required(error: PaymentRequiredError):
-        response = jsonify({"error": "Payment Required", "message": error.description, "status_code": error.code})
-        response.status_code = error.code
-        return response
-
-    @app.errorhandler(409)
-    def conflict_error_handler(error: HTTPException):
-        desc = getattr(error, 'description', "A conflict occurred.")
-        response = jsonify({"error": "Conflict", "message": desc, "status_code": 409})
-        response.status_code = 409
-        return response
+    def handle_payment_required(error):
+        return jsonify({"error": "Payment Required", "message": error.description}), 402
 
     @app.errorhandler(404)
-    def not_found_error_handler(error: HTTPException):
-        desc = getattr(error, 'description', "The requested resource was not found.")
-        response = jsonify({"error": "Not Found", "message": desc, "status_code": 404})
-        response.status_code = 404
-        return response
-
-    @app.errorhandler(400)
-    def bad_request_error_handler(error: HTTPException):
-        desc = getattr(error, 'description', "The request was malformed.")
-        response = jsonify({"error": "Bad Request", "message": desc, "status_code": 400})
-        response.status_code = 400
-        return response
+    def not_found(error):
+        return jsonify({"error": "Not Found", "message": "The requested resource was not found."}), 404
 
     @app.errorhandler(500)
-    def internal_server_error_handler(error: HTTPException):
-        desc = getattr(error, 'description', "An internal server error occurred.")
-        logger.exception(f"SERVER ERROR 500: {error}")
-        response = jsonify({"error": "Internal Server Error", "message": desc, "status_code": 500})
-        response.status_code = 500
-        return response
+    def server_error(error):
+        logger.exception("An internal server error occurred")
+        return jsonify({"error": "Internal Server Error"}), 500
+    
+    # ... Add other handlers like 400, 409 if needed ...
 
     # --- Route Definitions ---
-
     @app.route("/")
     def dashboard():
         readings = database.get_latest_readings()
@@ -115,7 +86,7 @@ def register_routes(app, device_state):
         
         payment_verified, _ = bsv_utils.check_payment_on_chain(reading_id, device_state.address, device_state.locking_script_hex, consumer_payment_txid)
         if not payment_verified:
-            raise PaymentRequiredError("Payment verification failed for the specified reading ID and payment TXID.")
+            raise PaymentRequiredError("Payment verification failed.")
 
         access_token = bsv_utils.generate_access_token()
         expiry = int(time.time()) + config.TOKEN_EXPIRY_SECONDS
@@ -125,10 +96,9 @@ def register_routes(app, device_state):
             database.update_reading_as_paid(reading_id, consumer_payment_txid)
             return jsonify({"message": "Access token generated.", "access_token": access_token, "data_endpoint": f"/fetch_data/{reading_id}", "expires_at": expiry}), 201
         except sqlite3.IntegrityError:
-            abort(409, "Token for this payment has already been claimed.")
+            abort(409, "Token for this payment may have already been claimed.")
         except Exception:
-            logger.exception("Server error while issuing token.")
-            abort(500)
+            logger.exception("Server error while issuing token."); abort(500)
 
     @app.route("/fetch_data/<int:reading_id>", methods=['GET'])
     def fetch_data_route(reading_id: int):
@@ -154,12 +124,9 @@ def register_routes(app, device_state):
 
     @app.route('/status', methods=['GET'])
     def get_agent_status():
-        """Returns the agent's current operational status and reputation metrics."""
         reputation_data = reputation.calculate_reputation_score()
-        
-        status_payload = {
+        return jsonify({
             "status": "online",
             "timestamp_utc": int(time.time()),
             "reputation": reputation_data
-        }
-        return jsonify(status_payload)
+        })
