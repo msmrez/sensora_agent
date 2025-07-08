@@ -51,10 +51,10 @@ BITAILS_API_BASE_URL = "https://api.bitails.io"
 
 # --- PROTOCOL CONSTANTS (These are not user-configurable) ---
 DATA_TYPE_TEMP_HUMID: int = 0x0001
-SENSORA_PREFIX: bytes = b'SENSORA'
+SENSORA_PREFIX: bytes = b'SENSORA_PROOF'
 SENSORA_VERSION: int = 0x01
 SENSORA_DEVICE_ID_TYPE_IPV6_FULL: int = 0x01
-ADVERTISEMENT_PREFIX: bytes = b'SENSORA-ADV1'
+ADVERTISEMENT_PREFIX: bytes = b'SENSORA_ADV1'
 
 # --- DATABASE (Not user-configurable) ---
 DATABASE_NAME = os.path.join(PROJECT_ROOT, "sensora_device.db")

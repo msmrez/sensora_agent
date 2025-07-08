@@ -27,8 +27,8 @@ This agent works in conjunction with the [Sensōra Indexer & Registry](https://g
 ## Core Features
 
 - **Autonomous Operation:** Runs as a background service, requiring no manual intervention.
-- **On-Chain Data Stamping:** Creates immutable, timestamped proofs of sensor data on the BSV blockchain using the `SENSORA` protocol.
-- **On-Chain Service Advertisement:** Periodically broadcasts its services (data types, price, location) on-chain using the `SENSORA-ADV1` protocol.
+- **On-Chain Data Stamping:** Creates immutable, timestamped proofs of sensor data on the BSV blockchain using the `SENSORA_PROOF` protocol.
+- **On-Chain Service Advertisement:** Periodically broadcasts its services (data types, price, location) on-chain using the `SENSORA_ADV1` protocol.
 - **Direct Monetization:** Sells data directly to consumers for BSV micropayments via a built-in API.
 - **Secure Data Access:** Implements a token-based access system to ensure only verified payers can retrieve data.
 - **Persistent State:** Uses a local SQLite database (`sensora_device.db`) to track all readings, payments, and access tokens, ensuring resilience against restarts.
@@ -37,16 +37,16 @@ This agent works in conjunction with the [Sensōra Indexer & Registry](https://g
 
 The agent **creates** two distinct `OP_RETURN` protocols on the BSV blockchain.
 
-### 1. Advertisement Protocol (`SENSORA-ADV1`)
+### 1. Advertisement Protocol (`SENSORA_ADV1`)
 
 Broadcast periodically to announce the sensor's services to the network.
 
-- **Prefix:** `SENSORA-ADV1` (ASCII)
+- **Prefix:** `SENSORA_ADV1` (ASCII)
 - **Payload Structure:**
 
 | Field           | Size (Bytes) | Data Type               | Description                         |
 | :-------------- | :----------- | :---------------------- | :---------------------------------- |
-| Prefix          | **12**       | ASCII                   | `SENSORA-ADV1`                      |
+| Prefix          | **12**       | ASCII                   | `SENSORA_ADV1`                      |
 | Device ID Type  | 1            | Unsigned Byte           | `0x01` for Full IPv6                |
 | Device ID       | 16           | Bytes                   | The sensor's IPv6 address           |
 | Port            | 2            | Unsigned Short (BE)     | API listener port                   |
@@ -58,16 +58,16 @@ Broadcast periodically to announce the sensor's services to the network.
 | ...             | ...          | ...                     | _(Repeat for more services)_        |
 | Timestamp       | 8            | Unsigned Long Long (BE) | Unix timestamp of the advertisement |
 
-### 2. Data Stamp Protocol (`SENSORA`)
+### 2. Data Stamp Protocol (`SENSORA_PROOF`)
 
 Broadcast for every new sensor reading to provide an immutable proof of integrity.
 
-- **Prefix:** `SENSORA` (ASCII)
+- **Prefix:** `SENSORA_PROOF` (ASCII)
 - **Payload Structure:**
 
 | Field          | Size (Bytes) | Data Type               | Description                   |
 | :------------- | :----------- | :---------------------- | :---------------------------- |
-| Prefix         | **7**        | ASCII                   | `SENSORA`                     |
+| Prefix         | **13**        | ASCII                   | `SENSORA_PROOF`                     |
 | Version        | 1            | Unsigned Byte           | Protocol version (`0x01`)     |
 | Device ID Type | 1            | Unsigned Byte           | `0x01` for Full IPv6          |
 | Device ID      | 16           | Bytes                   | The sensor's IPv6 address     |
