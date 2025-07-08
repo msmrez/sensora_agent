@@ -16,10 +16,10 @@ TOKEN_MAX_USAGE = 3 # Allow a few downloads per token
 
 # --- PROTOCOL CONSTANTS ---
 DATA_TYPE_TEMP_HUMID: int = 0x0001
-SENSORA_PREFIX: bytes = b'SNSR'
+SENSORA_PREFIX: bytes = b'SENSORA'
 SENSORA_VERSION: int = 0x01
 SENSORA_DEVICE_ID_TYPE_IPV6_FULL: int = 0x01
-ADVERTISEMENT_PREFIX: bytes = b'SNSRADV1'
+ADVERTISEMENT_PREFIX: bytes = b'SENSORA-ADV1'
 
 # --- DATABASE ---
 DATABASE_NAME = "sensora_device.db" # Assumes DB is in the same root dir as app.py

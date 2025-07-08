@@ -25,7 +25,7 @@ def format_float_for_hash(value: float, precision: int = 1) -> str:
 
 def create_sensora_op_return_payload(reading_timestamp_int: int, data_type_code: int, sensor_values_tuple: tuple) -> bytes:
     """
-    Creates the 'SNSR' data stamping OP_RETURN payload.
+    Creates the 'SENSORA' data stamping OP_RETURN payload.
     """
     device_id_bytes = get_device_id_bytes(config.DEVICE_IPV6_ADDRESS)
     
@@ -57,7 +57,7 @@ def create_sensora_op_return_payload(reading_timestamp_int: int, data_type_code:
 
 def create_advertisement_op_return_payload() -> bytes | None:
     """
-    Creates the 'SNSRADV1' advertisement OP_RETURN payload.
+    Creates the 'SENSORA-ADV1' advertisement OP_RETURN payload.
     """
     try:
         device_id_type_byte = struct.pack('>B', config.SENSORA_DEVICE_ID_TYPE_IPV6_FULL)
