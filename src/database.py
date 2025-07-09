@@ -382,7 +382,7 @@ def count_readings_in_range(start_ts: int, end_ts: int) -> int:
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT COUNT(*) FROM readings WHERE timestamp >= ? AND timestamp <= ?",
+        "SELECT COUNT(*) FROM sensor_readings WHERE timestamp >= ? AND timestamp <= ?",
         (start_ts, end_ts)
     )
     count = cursor.fetchone()[0]
@@ -424,7 +424,7 @@ def get_readings_in_range(start_ts: int, end_ts: int) -> list[dict]:
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT * FROM readings WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp ASC",
+        "SELECT * FROM sensor_readings WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp ASC",
         (start_ts, end_ts)
     )
     rows = cursor.fetchall()
