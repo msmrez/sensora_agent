@@ -10,13 +10,14 @@ import hashlib
 from . import config, database, bsv_utils, reputation
 
 logger = logging.getLogger(__name__)
-
+logger.info("routes.py module is being loaded by Python...")
 class PaymentRequiredError(HTTPException):
     code = 402
     description = 'Payment for this resource has not been detected.'
 
 def register_all_routes(app, device_state):
     """Registers all Flask error handlers and routes with the application."""
+    logger.info("register_all_routes() function is being CALLED.") # Also add this one
 
     # --- Error Handlers (Defined inside the registration function) ---
     @app.errorhandler(PaymentRequiredError)
@@ -32,9 +33,6 @@ def register_all_routes(app, device_state):
         logger.exception("An internal server error occurred")
         return jsonify({"error": "Internal Server Error"}), 500
     
-    # ... Add other handlers like 400, 409 if needed ...
-
-    # --- Route Definitions ---
     @app.route("/")
     def dashboard():
         readings = database.get_latest_readings()
@@ -102,6 +100,8 @@ def register_all_routes(app, device_state):
 
     @app.route("/fetch_data/<int:reading_id>", methods=['GET'])
     def fetch_data_route(reading_id: int):
+        logger.info("fetch_data_route function is being CALLED.") # Also add this one
+
         token = request.args.get("token")
         if not token: abort(401, "Access token is missing.")
 
@@ -111,7 +111,8 @@ def register_all_routes(app, device_state):
         if token_details["usage_count"] >= token_details["max_usage"]: abort(403, "Token usage limit reached.")
         
         reading_data = database.get_reading(reading_id)
-        if not reading_data: abort(404, "Data not found (internal inconsistency).")
+        if not reading_data: 
+            abort(404, "Data not found (internal inconsistency).")
         
         database.increment_token_usage(token_details["token_id"])
 
@@ -134,6 +135,8 @@ def register_all_routes(app, device_state):
 
     @app.route("/batch/fetch/<string:batch_id>", methods=['GET'])
     def batch_fetch_route(batch_id: str):
+        logger.info("batch_fetch_route function is being CALLED.") # Also add this one
+
         """
         Serves the full data for a purchased batch if a valid token is provided.
         """
@@ -220,6 +223,8 @@ def register_all_routes(app, device_state):
         
     @app.route("/batch/claim", methods=['POST'])
     def batch_claim_route():
+        logger.info("batch_claim_route function is being CALLED.") # Also add this one
+
         """
         Verifies a payment for a pre-quoted batch and issues an access token.
         """
