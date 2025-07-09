@@ -131,6 +131,44 @@ def register_all_routes(app, device_state):
             "reputation": reputation_data
         })
 
+
+    @app.route("/batch/fetch/<string:batch_id>", methods=['GET'])
+    def batch_fetch_route(batch_id: str):
+        """
+        Serves the full data for a purchased batch if a valid token is provided.
+        """
+        token = request.args.get("token")
+        if not token: 
+            abort(401, "Access token is missing.")
+
+        # 1. Verify the token is valid for this batch_id and hasn't expired or been overused.
+        token_details = database.get_token_details(batch_id, token) # Same function, now gets by batch_id
+        if not token_details: 
+            abort(403, "Invalid or mismatched token for this batch.")
+        if int(time.time()) >= token_details["expiry_timestamp"]: 
+            abort(403, "Token expired.")
+        if token_details["usage_count"] >= token_details["max_usage"]: 
+            abort(403, "Token usage limit reached.")
+        
+        # 2. Retrieve the original time range from the batch details cache/DB.
+        batch_details = database.get_cached_batch_details(batch_id)
+        if not batch_details:
+            abort(404, "Could not find details for this batch ID (internal inconsistency).")
+
+        start_ts = batch_details['start_timestamp']
+        end_ts = batch_details['end_timestamp']
+
+        # 3. Fetch the actual reading data from the main readings table.
+        readings = database.get_readings_in_range(start_ts, end_ts)
+        # add a log
+        logger.info(f"Fetched {len(readings)} readings for batch_id {batch_id[:8]}... from {start_ts} to {end_ts}.")
+        if not readings:
+            abort(404, "No data found for the given time range (internal inconsistency).")
+        
+        # 4. Increment the token usage and return the data.
+        database.increment_token_usage(token_details["token_id"])
+        return jsonify(readings)
+
     @app.route("/batch/price", methods=['POST'])
     def batch_price_route():
         data = request.get_json()
@@ -242,41 +280,3 @@ def register_all_routes(app, device_state):
             logger.exception("Server error while issuing batch token.")
             abort(500)
 
-
-    @app.route("/batch/fetch/<string:batch_id>", methods=['GET'])
-    def batch_fetch_route(batch_id: str):
-        """
-        Serves the full data for a purchased batch if a valid token is provided.
-        """
-        token = request.args.get("token")
-        if not token: 
-            abort(401, "Access token is missing.")
-
-        # 1. Verify the token is valid for this batch_id and hasn't expired or been overused.
-        token_details = database.get_token_details(batch_id, token) # Same function, now gets by batch_id
-        if not token_details: 
-            abort(403, "Invalid or mismatched token for this batch.")
-        if int(time.time()) >= token_details["expiry_timestamp"]: 
-            abort(403, "Token expired.")
-        if token_details["usage_count"] >= token_details["max_usage"]: 
-            abort(403, "Token usage limit reached.")
-        
-        # 2. Retrieve the original time range from the batch details cache/DB.
-        batch_details = database.get_cached_batch_details(batch_id)
-        if not batch_details:
-            abort(404, "Could not find details for this batch ID (internal inconsistency).")
-
-        start_ts = batch_details['start_timestamp']
-        end_ts = batch_details['end_timestamp']
-
-        # 3. Fetch the actual reading data from the main readings table.
-        readings = database.get_readings_in_range(start_ts, end_ts)
-        if not readings:
-            abort(404, "No data found for the given time range (internal inconsistency).")
-        
-        # 4. Increment the token usage and return the data.
-        database.increment_token_usage(token_details["token_id"])
-
-        # The `readings` variable should be a list of dictionaries from the DB.
-        # `jsonify` will correctly serialize this list into a JSON array.
-        return jsonify(readings)
