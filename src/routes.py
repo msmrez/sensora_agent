@@ -163,11 +163,15 @@ def register_all_routes(app, device_state):
         # Generate a unique ID for this specific batch request.
         batch_id = hashlib.sha256(f"{start_ts}:{end_ts}:{device_state.address}".encode()).hexdigest()
         
-        # Store the batch details temporarily so the claim endpoint can verify the price.
-        # This could be a simple in-memory dictionary or a new DB table.
-        # For now, let's assume a function `database.cache_batch_details(...)` exists.
-        database.cache_batch_details(batch_id, num_readings, total_price)
-
+        try:
+            # --- THIS IS THE CORRECTED LINE ---
+            database.cache_batch_details(batch_id, num_readings, total_price, start_ts, end_ts)
+            # --- END OF CORRECTION ---
+            
+            logger.info(f"Cached price quote for batch_id {batch_id[:8]}...: {num_readings} readings for {total_price} sats.")
+        except Exception:
+            logger.exception("Failed to cache batch details. Cannot provide a quote.")
+            abort(500, "Internal error occurred while preparing the batch quote.")
         return jsonify({
             "batch_id": batch_id,
             "num_readings": num_readings,
