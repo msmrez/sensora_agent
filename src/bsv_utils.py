@@ -313,3 +313,51 @@ def check_payment_on_chain(reading_id_to_check: int, payment_to_address: str, de
 
     logger.warning(f"[PAY_CHECK] Payment not confirmed for reading {reading_id_to_check} after checking candidates.")
     return False, None
+
+
+def check_batch_payment_on_chain(op_return_string: str, our_address: str, our_script_hex: str, txid: str, expected_sats: int) -> (bool, str):
+    """
+    Verifies a payment transaction for a BATCH of readings.
+    Checks for a specific OP_RETURN payload and an exact payment amount.
+    """
+    try:
+        url = f"https://api.bitails.io/tx/{txid}"
+        response = requests.get(url, timeout=15)
+        if response.status_code != 200:
+            logger.warning(f"Payment check failed for txid {txid}: API returned status {response.status_code}")
+            return False, "API Error"
+        
+        tx_data = response.json()
+        
+        op_return_found = False
+        payment_found = False
+        
+        op_return_payload_bytes = op_return_string.encode('utf-8')
+
+        for output in tx_data.get('outputs', []):
+            script_hex = output.get('script', '')
+            
+            # Check for OP_RETURN
+            if script_hex.startswith("006a") or script_hex.startswith("6a"):
+                # Simple check for the exact payload
+                if op_return_payload_bytes.hex() in script_hex:
+                    op_return_found = True
+            
+            # Check for payment to our address
+            if output.get('script') == our_script_hex:
+                if output.get('satoshis') == expected_sats:
+                    payment_found = True
+
+        if op_return_found and payment_found:
+            logger.info(f"SUCCESS: Batch payment verified for txid {txid}.")
+            return True, "Payment verified."
+        elif not op_return_found:
+            logger.warning(f"Payment check failed for {txid}: Correct OP_RETURN not found.")
+            return False, "OP_RETURN mismatch."
+        else: # not payment_found
+            logger.warning(f"Payment check failed for {txid}: Correct payment amount of {expected_sats} sats not found.")
+            return False, "Amount mismatch."
+            
+    except Exception as e:
+        logger.exception(f"An unexpected error occurred during payment verification for txid {txid}: {e}")
+        return False, "Exception occurred."

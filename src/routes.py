@@ -204,13 +204,14 @@ def register_all_routes(app, device_state):
         # This util function checks if the txid paid the correct amount to the right address
         # and has the correct OP_RETURN payload.
         op_return_payload = f"SENSORA_PAY:{batch_id}"
-        payment_verified, _ = bsv_utils.check_payment_on_chain(
+        payment_verified, _ = bsv_utils.check_batch_payment_on_chain(
             op_return_payload,
             device_state.address, 
             device_state.locking_script_hex, 
             consumer_payment_txid,
             expected_price
         )
+    
         
         if not payment_verified:
             # We use a custom error class here from your existing code
