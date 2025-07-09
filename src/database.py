@@ -73,7 +73,22 @@ def init_db():
             )
         ''')
         logger.info("[DB_INIT] CREATE TABLE key_value_store statement executed.")
-        
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS batch_quotes (
+            batch_id TEXT PRIMARY KEY,
+            num_readings INTEGER NOT NULL,
+            total_price_sats INTEGER NOT NULL,
+            start_timestamp INTEGER NOT NULL,
+            end_timestamp INTEGER NOT NULL,
+            created_timestamp INTEGER NOT NULL,
+            is_claimed INTEGER DEFAULT 0
+        );
+    ''')
+
+    # Add an index for faster cleanup of old quotes
+        cursor.execute('''
+        CREATE INDEX IF NOT EXISTS idx_batch_quotes_created ON batch_quotes (created_timestamp);
+        ''')
         conn.commit()
         logger.info(f"[DB_INIT] Database '{config.DATABASE_NAME}' initialized/checked successfully.")
     except Exception as e:
@@ -360,3 +375,67 @@ def get_all_reputation_metrics() -> dict:
     finally:
         if conn:
             conn.close()
+
+
+def count_readings_in_range(start_ts: int, end_ts: int) -> int:
+    """Counts how many readings exist within a given timestamp range."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT COUNT(*) FROM readings WHERE timestamp >= ? AND timestamp <= ?",
+        (start_ts, end_ts)
+    )
+    count = cursor.fetchone()[0]
+    conn.close()
+    return count
+
+def cache_batch_details(batch_id: str, num_readings: int, total_price_sats: int, start_ts: int, end_ts: int):
+    """Saves a batch quote to the database with an expiry."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    created_ts = int(time.time())
+    cursor.execute(
+        """
+        INSERT OR REPLACE INTO batch_quotes 
+        (batch_id, num_readings, total_price_sats, start_timestamp, end_timestamp, created_timestamp) 
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (batch_id, num_readings, total_price_sats, start_ts, end_ts, created_ts)
+    )
+    conn.commit()
+    conn.close()
+
+def get_cached_batch_details(batch_id: str) -> dict | None:
+    """Retrieves cached details for a given batch ID."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    # Optional: Add a check to ensure the quote hasn't expired (e.g., older than 15 mins)
+    # quote_expiry_threshold = int(time.time()) - (15 * 60)
+    cursor.execute(
+        "SELECT * FROM batch_quotes WHERE batch_id = ? AND is_claimed = 0", # AND created_timestamp > ?
+        (batch_id,) #, quote_expiry_threshold)
+    )
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+def get_readings_in_range(start_ts: int, end_ts: int) -> list[dict]:
+    """Fetches all reading data within a given timestamp range."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM readings WHERE timestamp >= ? AND timestamp <= ? ORDER BY timestamp ASC",
+        (start_ts, end_ts)
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+# You will also need these small helper functions referenced in the routes
+def mark_batch_as_claimed(batch_id: str):
+    """Marks a batch quote as claimed to prevent reuse."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE batch_quotes SET is_claimed = 1 WHERE batch_id = ?", (batch_id,))
+    conn.commit()
+    conn.close()
