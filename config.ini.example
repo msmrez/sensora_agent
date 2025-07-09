@@ -31,3 +31,5 @@ bsv_fee_rate_sats_per_byte = 0.02
 expiry_seconds = 3600
 # How many times a token can be used to download data.
 max_usage = 3
+[batch]
+max_batch_size = 1000

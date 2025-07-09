@@ -130,3 +130,148 @@ def register_all_routes(app, device_state):
             "timestamp_utc": int(time.time()),
             "reputation": reputation_data
         })
+
+    @app.route("/batch/price", methods=['POST'])
+    def batch_price_route():
+        data = request.get_json()
+        if not data or "start_timestamp" not in data or "end_timestamp" not in data:
+            abort(400, "Request must include 'start_timestamp' and 'end_timestamp'.")
+
+        start_ts = data['start_timestamp']
+        end_ts = data['end_timestamp']
+
+        # 1. Count the number of readings in the requested range.
+        num_readings = database.count_readings_in_range(start_ts, end_ts)
+
+        if num_readings == 0:
+            return jsonify({"message": "No readings found in the specified time range."}), 404
+
+        # 2. --- THIS IS THE NEW LIMIT CHECK ---
+        max_size = config.BATCH_MAX_SIZE 
+        if max_size > 0 and num_readings > max_size:
+            # The request is too large. Reject it with a helpful error message.
+            return jsonify({
+                "error": "Batch size limit exceeded",
+                "message": f"Your request for {num_readings} readings exceeds the agent's limit of {max_size}. Please request a smaller time range.",
+                "limit": max_size,
+                "requested": num_readings
+            }), 413 # 413 Payload Too Large is a fitting HTTP status code
+
+        # 3. If the check passes, proceed with price calculation.
+        total_price = num_readings * config.PRICE_SATS_PER_READING
+        
+        # Generate a unique ID for this specific batch request.
+        batch_id = hashlib.sha256(f"{start_ts}:{end_ts}:{device_state.address}".encode()).hexdigest()
+        
+        # Store the batch details temporarily so the claim endpoint can verify the price.
+        # This could be a simple in-memory dictionary or a new DB table.
+        # For now, let's assume a function `database.cache_batch_details(...)` exists.
+        database.cache_batch_details(batch_id, num_readings, total_price)
+
+        return jsonify({
+            "batch_id": batch_id,
+            "num_readings": num_readings,
+            "total_price_sats": total_price,
+            "payment_address": device_state.address,
+            "payment_instructions": f"Send {total_price} sats to {device_state.address}. OP_RETURN: 'SENSORA_PAY:{batch_id}'."
+        })
+        
+    @app.route("/batch/claim", methods=['POST'])
+    def batch_claim_route():
+        """
+        Verifies a payment for a pre-quoted batch and issues an access token.
+        """
+        data = request.get_json()
+        if not data or "batch_id" not in data or "payment_txid" not in data:
+            abort(400, "Request must include 'batch_id' and 'payment_txid'.")
+
+        batch_id = data['batch_id']
+        consumer_payment_txid = data['payment_txid']
+
+        # 1. Retrieve the original quote details from our cache/DB.
+        # This prevents the client from trying to claim a batch that wasn't quoted.
+        batch_details = database.get_cached_batch_details(batch_id)
+        if not batch_details:
+            abort(404, f"Batch ID '{batch_id}' not found or has expired. Please request a new price quote.")
+
+        expected_price = batch_details['total_price_sats']
+
+        # 2. Verify the payment on-chain.
+        # This util function checks if the txid paid the correct amount to the right address
+        # and has the correct OP_RETURN payload.
+        op_return_payload = f"SENSORA_PAY:{batch_id}"
+        payment_verified, _ = bsv_utils.check_payment_on_chain(
+            op_return_payload,
+            device_state.address, 
+            device_state.locking_script_hex, 
+            consumer_payment_txid,
+            expected_price
+        )
+        
+        if not payment_verified:
+            # We use a custom error class here from your existing code
+            raise PaymentRequiredError("Batch payment verification failed. Ensure the amount and OP_RETURN are correct.")
+
+        # 3. If payment is verified, generate and save a single access token for the batch.
+        access_token = bsv_utils.generate_access_token()
+        expiry = int(time.time()) + config.TOKEN_EXPIRY_SECONDS
+        
+        try:
+            # Note: We are now associating the token with the batch_id.
+            # Your save_access_token function may need a slight adjustment if it
+            # assumes the first argument is always an integer reading_id.
+            database.save_access_token(batch_id, consumer_payment_txid, access_token, expiry, config.TOKEN_MAX_USAGE)
+            
+            # We can also mark the cached batch as "claimed"
+            database.mark_batch_as_claimed(batch_id)
+
+            return jsonify({
+                "message": "Access token for batch generated.", 
+                "access_token": access_token, 
+                "data_endpoint": f"/batch/fetch/{batch_id}", 
+                "expires_at": expiry
+            }), 201
+        except sqlite3.IntegrityError:
+            abort(409, "Token for this batch payment may have already been claimed.")
+        except Exception:
+            logger.exception("Server error while issuing batch token.")
+            abort(500)
+
+
+    @app.route("/batch/fetch/<string:batch_id>", methods=['GET'])
+    def batch_fetch_route(batch_id: str):
+        """
+        Serves the full data for a purchased batch if a valid token is provided.
+        """
+        token = request.args.get("token")
+        if not token: 
+            abort(401, "Access token is missing.")
+
+        # 1. Verify the token is valid for this batch_id and hasn't expired or been overused.
+        token_details = database.get_token_details(batch_id, token) # Same function, now gets by batch_id
+        if not token_details: 
+            abort(403, "Invalid or mismatched token for this batch.")
+        if int(time.time()) >= token_details["expiry_timestamp"]: 
+            abort(403, "Token expired.")
+        if token_details["usage_count"] >= token_details["max_usage"]: 
+            abort(403, "Token usage limit reached.")
+        
+        # 2. Retrieve the original time range from the batch details cache/DB.
+        batch_details = database.get_cached_batch_details(batch_id)
+        if not batch_details:
+            abort(404, "Could not find details for this batch ID (internal inconsistency).")
+
+        start_ts = batch_details['start_timestamp']
+        end_ts = batch_details['end_timestamp']
+
+        # 3. Fetch the actual reading data from the main readings table.
+        readings = database.get_readings_in_range(start_ts, end_ts)
+        if not readings:
+            abort(404, "No data found for the given time range (internal inconsistency).")
+        
+        # 4. Increment the token usage and return the data.
+        database.increment_token_usage(token_details["token_id"])
+
+        # The `readings` variable should be a list of dictionaries from the DB.
+        # `jsonify` will correctly serialize this list into a JSON array.
+        return jsonify(readings)
