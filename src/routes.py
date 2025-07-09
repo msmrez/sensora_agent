@@ -6,7 +6,7 @@ import logging
 import sqlite3
 from flask import request, jsonify, abort, render_template
 from werkzeug.exceptions import HTTPException
-
+import hashlib
 from . import config, database, bsv_utils, reputation
 
 logger = logging.getLogger(__name__)
