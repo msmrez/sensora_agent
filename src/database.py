@@ -440,3 +440,18 @@ def mark_batch_as_claimed(batch_id: str):
     cursor.execute("UPDATE batch_quotes SET is_claimed = 1 WHERE batch_id = ?", (batch_id,))
     conn.commit()
     conn.close()
+
+def get_batch_details_for_fetch(batch_id: str) -> dict | None:
+    """
+    Retrieves details for a given batch ID, regardless of its claimed status.
+    This is used by the /fetch endpoint after a token has been verified.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT * FROM batch_quotes WHERE batch_id = ?",
+        (batch_id,)
+    )
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None

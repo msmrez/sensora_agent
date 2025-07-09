@@ -149,7 +149,7 @@ def register_all_routes(app, device_state):
             abort(403, "Invalid or mismatched token for this batch.")
         
         logger.info("Token verified. Now checking cache for batch details...")
-        batch_details = database.get_cached_batch_details(batch_id)
+        batch_details = database.get_batch_details_for_fetch(batch_id)
         if not batch_details:
             logger.error(f"FETCH FAIL: get_cached_batch_details returned None for batch_id {batch_id[:8]}...")
             abort(404, "Could not find details for this batch ID (internal inconsistency).")
