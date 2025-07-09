@@ -47,7 +47,7 @@ except (configparser.NoSectionError, configparser.NoOptionError) as e:
 
 # --- API ENDPOINTS (Not user-configurable, but defined here for consistency) ---
 BITAILS_API_BASE_URL = "https://api.bitails.io"
-
+BATCH_MAX_SIZE = 1000
 
 # --- PROTOCOL CONSTANTS (These are not user-configurable) ---
 DATA_TYPE_TEMP_HUMID: int = 0x0001
