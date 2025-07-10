@@ -7,6 +7,8 @@ import hashlib
 from . import config # Import settings from our config file
 import uuid
 import secrets
+import logger
+import json
 # --- OP_RETURN HELPER FUNCTIONS ---
 
 def generate_access_token() -> str:

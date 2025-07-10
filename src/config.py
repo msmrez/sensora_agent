@@ -4,6 +4,7 @@ import configparser
 import os
 import sys
 import logging
+parser = configparser.ConfigParser()
 
 logger = logging.getLogger(__name__)
 
@@ -11,14 +12,13 @@ logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_FILE_PATH = os.path.join(PROJECT_ROOT, 'config.ini')
-
+# Read the config.ini file
+parser.read(CONFIG_FILE_PATH)
 if not os.path.exists(CONFIG_FILE_PATH):
     logger.critical(f"CRITICAL: Configuration file not found at {CONFIG_FILE_PATH}.")
     logger.critical("Please copy 'config.ini.example' to 'config.ini' and fill in your details.")
     sys.exit(1)
 
-parser = configparser.ConfigParser()
-parser.read(CONFIG_FILE_PATH)
 
 # --- Expose Settings ---
 try:
