@@ -75,9 +75,9 @@ def create_advertisement_op_return_payload() -> bytes | None:
                 geohash_bytes = geohash_bytes[:12]
         geohash_len_byte = struct.pack('>B', len(geohash_bytes))
         services_to_advertise = []
-        for section in config.cfg.sections():
+        for section in config.parser.sections():
             if section.startswith('service.'):
-                service_config = config.cfg[section]
+                service_config = config.parser[section]
                 if service_config.getboolean('enabled', False):
                     # Construct the JSON object for the service
                     service_json = {
