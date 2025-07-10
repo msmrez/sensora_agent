@@ -39,5 +39,5 @@ enabled = true
 data_type_code = 1
 name = "Temperature/Humidity"
 description = "Measures ambient temperature and relative humidity."
-units = ["°C", "%RH"]
+units = ["°C", "%%RH"]
 price_sats = 50
