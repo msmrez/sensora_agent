@@ -35,16 +35,36 @@ def register_all_routes(app, device_state):
     
     @app.route("/")
     def dashboard():
-        readings = database.get_latest_readings()
-        tokens = database.get_latest_tokens()
-        last_adv_txid = database.get_key_value('last_adv_txid') or "N/A"
-        reputation_data = reputation.calculate_reputation_score()
-        chart_data = { "labels": [], "temp_data": [], "humid_data": [] }
-        for reading in reversed(readings):
-            if reading.get("paid") and reading.get("sensor_values"):
-                chart_data["labels"].append(time.strftime('%H:%M:%S', time.localtime(reading["reading_id"])))
-                chart_data["temp_data"].append(reading["value_temp"])
-                chart_data["humid_data"].append(reading["value_humid"])
+        logger.info("--- Rendering Agent Dashboard ---")
+        try:
+            readings = database.get_latest_readings()
+            logger.info(f"Readings data from DB: {readings}")
+
+            tokens = database.get_latest_tokens()
+            logger.info(f"Tokens data from DB: {tokens}")
+            
+            last_adv_txid = database.get_key_value('last_adv_txid') or "N/A"
+            logger.info(f"Last Adv TXID: {last_adv_txid}")
+
+            reputation_data = reputation.calculate_reputation_score()
+            logger.info(f"Reputation data: {reputation_data}")
+
+            chart_data = { "labels": [], "temp_data": [], "humid_data": [] }
+            # This loop needs to be more robust
+            for reading in reversed(readings):
+                if reading.get("paid") and reading.get("value_temp") is not None:
+                    chart_data["labels"].append(time.strftime('%H:%M:%S', time.localtime(reading["reading_id"])))
+                    chart_data["temp_data"].append(reading["value_temp"])
+                    chart_data["humid_data"].append(reading["value_humid"])
+        
+            chart_data_json = json.dumps(chart_data)
+            logger.info(f"Chart JSON data: {chart_data_json}")
+
+        except Exception as e:
+            logger.exception("CRITICAL ERROR gathering data for dashboard!")
+            # Return a simple error page instead of a blank one
+            return "<h1>Error</h1><p>An internal error occurred while generating the dashboard. Please check server logs.</p>", 500
+        
         return render_template(
             "index.html", 
             device_ipv6=config.DEVICE_IPV6_ADDRESS,
