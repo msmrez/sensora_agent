@@ -105,7 +105,7 @@ def create_advertisement_op_return_payload() -> bytes | None:
         timestamp_bytes = struct.pack('>Q', int(time.time()))
 
         op_return_parts = [
-            config.SENSORA_PREFIX,
+            config.ADVERTISEMENT_PREFIX,
             device_id_type_byte,
             device_id_bytes,
             port_bytes,
