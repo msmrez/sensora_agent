@@ -1,24 +1,21 @@
-# sensora_agent/app.py
-
 import threading
 import time
 import logging
 import sys
 import random
 from flask import Flask
-from threading import Lock # <--- ADD THIS IMPORT
+from threading import Lock
 
 # Import from our new 'src' package
 from src import config, database, protocols, bsv_utils, routes
 
 # --- Logging Setup ---
+# (This part is fine, no changes needed)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - [%(threadName)s] %(module)s.%(funcName)s:%(lineno)d - %(message)s',
     datefmt='%Y-%m-%d %H:%M:%S'
 )
-logging.getLogger("requests").setLevel(logging.WARNING)
-logging.getLogger("urllib3").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # --- Main Application State Class ---
@@ -29,8 +26,12 @@ class DeviceState:
         self.address = None
         self.locking_script_hex = None
 
+# --- Global Objects ---
+# Create these objects at the top level so they are globally accessible.
 device_state = DeviceState()
-bsv_tx_lock = Lock() # --- FIX: CREATE THE GLOBAL LOCK ---
+bsv_tx_lock = Lock()
+# Create the Flask app object here, outside of the main block.
+app = Flask(__name__, template_folder='templates')
 
 # --- Sensor Data Simulation ---
 def get_simulated_sensor_data() -> tuple[int, tuple[float, float], int]:
@@ -42,8 +43,6 @@ def get_simulated_sensor_data() -> tuple[int, tuple[float, float], int]:
 def data_type_code_to_name(code: int) -> str:
     if code == config.DATA_TYPE_TEMP_HUMID: return "Temp/Humid"
     return f"Unknown ({code})"
-
-# --- Background Threads Logic ---
 
 def sensor_and_stamp_loop():
     logger.info("Sensor and stamp loop starting...")
@@ -135,34 +134,29 @@ def advertisement_loop():
         logger.info(f"[ADV_LOOP] Next advertisement in {config.ADVERTISEMENT_INTERVAL_SECONDS / 3600:.1f} hours.")
         time.sleep(config.ADVERTISEMENT_INTERVAL_SECONDS)
 
-# --- MAIN EXECUTION BLOCK ---
-if __name__ == "__main__":
-    logger.info("--- Starting Sensōra Device Agent ---")
+# --- Application Factory Function ---
+def create_app():
+    """Initializes and returns the configured Flask application."""
+    logger.info("--- Initializing Sensōra Device Agent ---")
     
     database.init_db() 
     
-    logger.info(f"Loading WIF: {config.DEVICE_WIF[:5]}...")
-    device_state.private_key = bsv_utils.get_bsv_private_key_object(config.DEVICE_WIF) 
+    logger.info(f"Loading WIF: {config.WIF[:5]}...")
+    device_state.private_key = bsv_utils.get_bsv_private_key_object(config.WIF)
     if not device_state.private_key:
-        logger.critical("Could not load device private key from WIF. Exiting.")
+        logger.critical("Could not load private key. Exiting.")
         sys.exit(1)
 
     device_state.public_key = bsv_utils.get_bsv_public_key_object(device_state.private_key)
-    if not device_state.public_key:
-        logger.critical("Could not derive public key. Exiting.")
-        sys.exit(1)
-    
     addr, script_hex = bsv_utils.get_address_and_locking_script(device_state.public_key)
-    if not (addr and script_hex):
-        logger.critical("Could not derive payment address or locking script. Exiting.")
-        sys.exit(1)
     device_state.address = addr
     device_state.locking_script_hex = script_hex
     
     logger.info(f"Device Initialized. Payment Address: {device_state.address}")
-    app = Flask(__name__, template_folder='templates')
-    
+
+    # Register routes with the global 'app' object
     routes.register_all_routes(app, device_state)
+    
     logger.info("Broadcasting initial sensor advertisement...")
     if not broadcast_advertisement_tx():
         logger.warning("Initial advertisement broadcast FAILED. Check logs and funding.")
@@ -174,8 +168,16 @@ if __name__ == "__main__":
     adv_thread = threading.Thread(target=advertisement_loop, name="AdvertiserThread", daemon=True)
     adv_thread.start()
     
-    logger.info(f"Starting Flask API server on http://[{config.DEVICE_IPV6_ADDRESS}]:{config.DEVICE_PORT} (listening on [::])")
+    return app
+
+# --- MAIN EXECUTION BLOCK ---
+if __name__ == "__main__":
+    # Create the app using the factory function
+    application = create_app()
+    
+    logger.info(f"Starting Flask API server (listening on localhost:{config.DEVICE_PORT})")
     try:
-        app.run(host="localhost", port=config.DEVICE_PORT, debug=False)
+        # Run the globally defined app object
+        application.run(host="localhost", port=config.DEVICE_PORT, debug=False)
     except Exception as e:
         logger.exception(f"Flask server failed to start or crashed: {e}")
