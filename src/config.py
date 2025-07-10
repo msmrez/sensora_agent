@@ -25,7 +25,7 @@ try:
     # [Device]
     DEVICE_IPV6_ADDRESS = parser.get('Device', 'ipv6_address')
     DEVICE_PORT = parser.getint('Device', 'port')
-    DEVICE_WIF = parser.get('Device', 'wif')
+    WIF = parser.get('Device', 'wif')
 
     # [Location]
     DEVICE_GEOHASH = parser.get('Location', 'geohash', fallback=None)
