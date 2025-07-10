@@ -74,12 +74,12 @@ def create_advertisement_op_return_payload() -> bytes | None:
 
         # --- 2. Build Services JSON from Config ---
         services_to_advertise = []
-        logger.debug(f"Scanning config sections for services: {config.cfg.sections()}")
+        logger.debug(f"Scanning config sections for services: {config.parser.sections()}")
 
-        for section in config.cfg.sections():
+        for section in config.parser.sections():
             if section.startswith('service.'):
                 logger.debug(f"Processing service section: [{section}]")
-                service_config = config.cfg[section]
+                service_config = config.parser[section]
 
                 if service_config.getboolean('enabled', False):
                     # Read simple strings from the config
