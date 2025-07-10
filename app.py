@@ -176,6 +176,6 @@ if __name__ == "__main__":
     
     logger.info(f"Starting Flask API server on http://[{config.DEVICE_IPV6_ADDRESS}]:{config.DEVICE_PORT} (listening on [::])")
     try:
-        app.run(host="::", port=config.DEVICE_PORT, debug=False)
+        app.run(host="localhost", port=config.DEVICE_PORT, debug=False)
     except Exception as e:
         logger.exception(f"Flask server failed to start or crashed: {e}")
