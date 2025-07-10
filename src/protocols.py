@@ -76,31 +76,35 @@ def create_advertisement_op_return_payload() -> bytes | None:
                 geohash_bytes = geohash_bytes[:12]
         geohash_len_byte = struct.pack('>B', len(geohash_bytes))
         services_to_advertise = []
-        for section in config.parser.sections():
+
+        services_to_advertise = []
+        for section in config.cfg.sections():
             if section.startswith('service.'):
-                service_config = config.parser[section]
+                service_config = config.cfg[section]
                 if service_config.getboolean('enabled', False):
-                    # Construct the JSON object for the service
+                
+                    # Read simple strings from the config
+                    units_str = service_config.get('units', '')
+                    
                     service_json = {
                         "type": service_config.getint('data_type_code'),
                         "name": service_config.get('name', 'Unnamed Service'),
                         "desc": service_config.get('description', ''),
-                        "units": json.loads(service_config.get('units', '[]')),
+                        # Split the simple string into a list for the JSON
+                        "units": [unit.strip() for unit in units_str.split(',')],
                         "price": service_config.getint('price_sats')
                     }
                     services_to_advertise.append(service_json)
-        
-        # We will now serialize the entire list of services into a single JSON string
+
         services_payload_str = json.dumps(services_to_advertise, separators=(',', ':'))
         services_payload_bytes = services_payload_str.encode('utf-8')
+
 
         # To keep the OP_RETURN manageable, we should check the size
         if len(services_payload_bytes) > 500: # A reasonable limit
             logger.error("Services JSON payload is too large for OP_RETURN.")
             # Fallback to advertising no services
             services_payload_bytes = b'[]'
-
-        # --- END OF NEW LOGIC ---
 
         timestamp_bytes = struct.pack('>Q', int(time.time()))
 
