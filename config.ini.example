@@ -33,3 +33,11 @@ expiry_seconds = 3600
 max_usage = 3
 [batch]
 max_batch_size = 1000
+
+[service.temp_humid]
+enabled = true
+data_type_code = 1
+name = "Temperature/Humidity"
+description = "Measures ambient temperature and relative humidity."
+units = ["°C", "%RH"]
+price_sats = 50

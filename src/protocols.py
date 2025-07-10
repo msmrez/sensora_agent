@@ -72,36 +72,47 @@ def create_advertisement_op_return_payload() -> bytes | None:
             if len(geohash_bytes) > 12: 
                 geohash_bytes = geohash_bytes[:12]
         geohash_len_byte = struct.pack('>B', len(geohash_bytes))
+        services_to_advertise = []
+        for section in config.cfg.sections():
+            if section.startswith('service.'):
+                service_config = config.cfg[section]
+                if service_config.getboolean('enabled', False):
+                    # Construct the JSON object for the service
+                    service_json = {
+                        "type": service_config.getint('data_type_code'),
+                        "name": service_config.get('name', 'Unnamed Service'),
+                        "desc": service_config.get('description', ''),
+                        "units": [unit.strip() for unit in service_config.get('units', '').split(',')],
+                        "price": service_config.getint('price_sats')
+                    }
+                    services_to_advertise.append(service_json)
+        
+        # We will now serialize the entire list of services into a single JSON string
+        services_payload_str = json.dumps(services_to_advertise, separators=(',', ':'))
+        services_payload_bytes = services_payload_str.encode('utf-8')
 
-        # Define services offered by this device from config
-        services = [
-            {"data_type": config.DATA_TYPE_TEMP_HUMID, "price_sats": config.PRICE_SATS_PER_READING},
-            # To add more services, you would extend the config and this list
-        ]
-        num_services_byte = struct.pack('>B', len(services))
-        
-        service_bytes_list = []
-        for service in services:
-            service_bytes_list.append(struct.pack('>H', service["data_type"]))
-            service_bytes_list.append(struct.pack('>I', service["price_sats"]))
-        
-        all_service_bytes = b''.join(service_bytes_list)
+        # To keep the OP_RETURN manageable, we should check the size
+        if len(services_payload_bytes) > 500: # A reasonable limit
+            logger.error("Services JSON payload is too large for OP_RETURN.")
+            # Fallback to advertising no services
+            services_payload_bytes = b'[]'
+
+        # --- END OF NEW LOGIC ---
+
         timestamp_bytes = struct.pack('>Q', int(time.time()))
 
         op_return_parts = [
-            config.ADVERTISEMENT_PREFIX,
+            config.SENSORA_ADV_PREFIX,
             device_id_type_byte,
             device_id_bytes,
             port_bytes,
             geohash_len_byte,
-            geohash_bytes, 
-            num_services_byte,
-            all_service_bytes,
+            geohash_bytes,
+            # Instead of #services, price, etc., we just push the JSON payload
+            services_payload_bytes,
             timestamp_bytes
         ]
         return b''.join(op_return_parts)
     except Exception as e:
-        # Using logger here would require passing it in, for now, let's keep it clean
-        # The caller function will log the error.
-        print(f"ERROR: Could not create advertisement payload: {e}")
+        logger.exception(f"ERROR: Could not create advertisement payload: {e}")
         return None
