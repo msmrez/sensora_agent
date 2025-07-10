@@ -52,11 +52,11 @@ def register_all_routes(app, device_state):
             chart_data = { "labels": [], "temp_data": [], "humid_data": [] }
             # This loop needs to be more robust
             for reading in reversed(readings):
-                if reading.get("paid") and reading.get("value_temp") is not None:
+                # Check if the 'sensor_values' key exists and is a tuple/list of 2
+                if 'sensor_values' in reading and isinstance(reading['sensor_values'], (list, tuple)) and len(reading['sensor_values']) == 2:
                     chart_data["labels"].append(time.strftime('%H:%M:%S', time.localtime(reading["reading_id"])))
-                    chart_data["temp_data"].append(reading["value_temp"])
-                    chart_data["humid_data"].append(reading["value_humid"])
-        
+                    chart_data["temp_data"].append(reading["sensor_values"][0])
+                    chart_data["humid_data"].append(reading["sensor_values"][1])
             chart_data_json = json.dumps(chart_data)
             logger.info(f"Chart JSON data: {chart_data_json}")
 
