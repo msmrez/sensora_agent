@@ -9,6 +9,7 @@ import uuid
 import secrets
 import logging
 import json
+logger = logging.getLogger(__name__)
 # --- OP_RETURN HELPER FUNCTIONS ---
 
 def generate_access_token() -> str:
