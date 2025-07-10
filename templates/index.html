@@ -65,28 +65,28 @@
                 {% endif %}
             </p>
         </div>
-
-        <div class="card full-width">
-            <h3>Sensor Reputation</h3>
-            <div class="reputation-grid">
-                <div>
-                    <strong>Uptime (Adv. Success)</strong>
-                    <span class="score">{{ reputation_data.uptime_percentage }}%</span>
-                </div>
-                <div>
-                    <strong>Stamping Success Rate</strong>
-                    <span class="score">{{ reputation_data.stamp_success_rate }}%</span>
-                </div>
-                <div>
-                    <strong>Total Stamped Readings</strong>
-                    <span class="score">{{ reputation_data.total_stamps_recorded }}</span>
-                </div>
-                <div>
-                    <strong>Total Advertisements</strong>
-                    <span class="score">{{ reputation_data.total_advertisements_sent }}</span>
-                </div>
-            </div>
+<div class="card full-width">
+    <h3>Sensor Reputation</h3>
+    <div class="reputation-grid">
+        <div>
+            <strong>Uptime (Adv. Success)</strong>
+            <!-- Use the default filter to prevent errors if the key is missing -->
+            <span class="score">{{ reputation_data.uptime_percentage | default('N/A') }}%</span>
         </div>
+        <div>
+            <strong>Stamping Success Rate</strong>
+            <span class="score">{{ reputation_data.stamp_success_rate | default('N/A') }}%</span>
+        </div>
+        <div>
+            <strong>Total Stamped Readings</strong>
+            <span class="score">{{ reputation_data.total_stamps_recorded | default(0) }}</span>
+        </div>
+        <div>
+            <strong>Total Advertisements</strong>
+            <span class="score">{{ reputation_data.total_advertisements_sent | default(0) }}</span>
+        </div>
+    </div>
+</div>
 
         <div class="card full-width">
             <h3>Paid Data Visualization</h3>
