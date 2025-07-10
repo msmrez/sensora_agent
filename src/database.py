@@ -145,7 +145,35 @@ def get_reading(reading_id: int):
     finally:
         if conn:
             conn.close()
-            
+
+
+def get_latest_claimed_batches(limit: int = 10) -> list[dict]:
+    """Fetches the most recently claimed batches from the database."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    # We also need the payment txid, which is stored in the 'access_tokens' table.
+    # So, we need to join the tables.
+    cursor.execute("""
+        SELECT 
+            bq.batch_id, 
+            bq.num_readings, 
+            bq.total_price_sats, 
+            bq.start_timestamp, 
+            bq.end_timestamp,
+            t.payment_txid,
+            t.created_at
+        FROM batch_quotes bq
+        JOIN access_tokens t ON bq.batch_id = t.reading_id -- 'reading_id' column now holds batch_id
+        WHERE bq.is_claimed = 1
+        ORDER BY t.created_at DESC
+        LIMIT ?
+    """, (limit,))
+    
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+
 def reading_exists(reading_id: int) -> bool:
     """Checks if a reading exists in the database."""
     # This is a more efficient way than fetching the whole row

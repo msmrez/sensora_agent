@@ -92,6 +92,45 @@
             <h3>Paid Data Visualization</h3>
             <canvas id="sensorChart"></canvas>
         </div>
+<div class="card full-width">
+    <h3>Recent Batch Purchases</h3>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Batch ID</th>
+                    <th>Time Range</th>
+                    <th># Readings</th>
+                    <th>Price Paid</th>
+                    <th>Payment TXID</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if batches %}
+                    {% for batch in batches %}
+                    <tr>
+                        <td title="{{ batch.batch_id }}"><span class="code">{{ batch.batch_id[:12] }}...</span></td>
+                        <td>
+                            {{ time.strftime('%Y-%m-%d %H:%M', time.gmtime(batch.start_timestamp)) }}
+                            -
+                            {{ time.strftime('%Y-%m-%d %H:%M', time.gmtime(batch.end_timestamp)) }}
+                        </td>
+                        <td>{{ batch.num_readings }}</td>
+                        <td><strong>{{ batch.total_price_sats }} sats</strong></td>
+                        <td>
+                            <a href="https://whatsonchain.com/tx/{{ batch.payment_txid }}" target="_blank" class="code">{{ batch.payment_txid[:12] }}...</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td colspan="5" style="text-align: center; color: #6c757d;">No batches have been purchased yet.</td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
 
         <div class="card full-width">
             <h3>Recent Sensor Readings</h3>

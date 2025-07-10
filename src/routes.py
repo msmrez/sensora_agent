@@ -39,6 +39,7 @@ def register_all_routes(app, device_state):
         try:
             readings = database.get_latest_readings()
             logger.info(f"Readings data from DB: {readings}")
+            recent_batches = database.get_latest_claimed_batches(limit=10)
 
             tokens = database.get_latest_tokens()
             logger.info(f"Tokens data from DB: {tokens}")
@@ -72,6 +73,7 @@ def register_all_routes(app, device_state):
             price_sats=config.PRICE_SATS_PER_READING,
             readings=readings,
             tokens=tokens,
+            recent_batches=recent_batches,
             last_adv_txid=last_adv_txid,
             reputation_data=reputation_data,
             chart_data=json.dumps(chart_data),
