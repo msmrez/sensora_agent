@@ -7,7 +7,7 @@ import hashlib
 from . import config # Import settings from our config file
 import uuid
 import secrets
-import logger
+import logging
 import json
 # --- OP_RETURN HELPER FUNCTIONS ---
 
