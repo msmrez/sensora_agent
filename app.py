@@ -175,9 +175,9 @@ if __name__ == "__main__":
     # Create the app using the factory function
     application = create_app()
     
-    logger.info(f"Starting Flask API server (listening on localhost:{config.DEVICE_PORT})")
+    logger.info(f"Starting Flask API server (listening on server port:{config.DEVICE_PORT})")
     try:
         # Run the globally defined app object
-        application.run(host="localhost", port=config.DEVICE_PORT, debug=False)
+        application.run(host="::", port=config.DEVICE_PORT, debug=False)
     except Exception as e:
         logger.exception(f"Flask server failed to start or crashed: {e}")
