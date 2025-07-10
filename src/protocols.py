@@ -85,7 +85,7 @@ def create_advertisement_op_return_payload() -> bytes | None:
                         "type": service_config.getint('data_type_code'),
                         "name": service_config.get('name', 'Unnamed Service'),
                         "desc": service_config.get('description', ''),
-                        "units": [unit.strip() for unit in service_config.get('units', '').split(',')],
+                        "units": json.loads(service_config.get('units', '[]')),
                         "price": service_config.getint('price_sats')
                     }
                     services_to_advertise.append(service_json)

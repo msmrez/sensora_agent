@@ -98,6 +98,9 @@ def init_db():
         if conn:
             conn.close()
 
+
+
+
 # --- Query and Update Functions ---
 
 def save_reading(reading_id, timestamp, value_tuple, data_type, op_return_payload_hex, onchain_proof_txid):
