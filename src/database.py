@@ -225,36 +225,47 @@ def update_reading_as_paid(reading_id: int, payment_txid: str):
         if conn:
             conn.close()
 
-def save_access_token(reading_id, payment_txid, token, expiry, max_usage):
-    """Saves a new access token to the database."""
+def save_access_token(reading_id, payment_txid, access_token, expiry_timestamp, max_usage):
+    """
+    Saves a new access token to the database.
+    The 'reading_id' can be an integer (for single readings) or a string (for batches).
+    The database column is TEXT to accommodate both.
+    """
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute('''
+
+        # This SQL statement is correct.
+        sql = '''
             INSERT INTO access_tokens 
                 (reading_id, payment_txid, access_token, expiry_timestamp, max_usage) 
             VALUES 
                 (?, ?, ?, ?, ?)
-        ''', (
-            str(reading_id), 
-            payment_txid, 
-            access_token, 
-            expiry, 
+        '''
+        
+        # This tuple of parameters now correctly matches the function signature.
+        params = (
+            str(reading_id),
+            payment_txid,
+            access_token,
+            expiry_timestamp,
             max_usage
-        ))
-        conn.commit()
-        logger.info(f"Access token for reading {reading_id} saved to database.")
-    except sqlite3.IntegrityError as ie:
-        logger.warning(f"DB IntegrityError on token insert for reading {reading_id}, payment {payment_txid[:10]}...: {ie}")
-        raise # Re-raise to be handled by the caller (e.g., to return a 409 Conflict)
-    except Exception as e:
-        logger.exception(f"Error saving access token for reading {reading_id}: {e}")
-        raise
+        )
 
+        cursor.execute(sql, params)
+        conn.commit()
+        
+        logger.info(f"Access token for reading/batch {str(reading_id)[:12]}... saved to database.")
+
+    except Exception as e:
+        logger.exception(f"Error saving access token for reading/batch {str(reading_id)}: {e}")
+        # Re-raise the exception so the calling route knows something went wrong.
+        raise
     finally:
         if conn:
             conn.close()
+
 
 def get_token_details(reading_id, token):
     """Fetches token details for validation."""
