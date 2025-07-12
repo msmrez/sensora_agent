@@ -231,7 +231,7 @@ def save_access_token(reading_id, payment_txid, token, expiry, max_usage):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-                cursor.execute('''
+        cursor.execute('''
             INSERT INTO access_tokens 
                 (reading_id, payment_txid, access_token, expiry_timestamp, max_usage) 
             VALUES 
