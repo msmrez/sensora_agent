@@ -304,11 +304,5 @@ def register_all_routes(app, device_state):
             abort(500)
 
 
-    def mark_batch_as_claimed(batch_id: str):
-        """Marks a batch quote as claimed to prevent reuse."""
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("UPDATE batch_quotes SET is_claimed = 1 WHERE batch_id = ?", (batch_id,))
-        conn.commit()
-        conn.close()
+
         

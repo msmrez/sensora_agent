@@ -266,6 +266,14 @@ def save_access_token(reading_id, payment_txid, access_token, expiry_timestamp, 
         if conn:
             conn.close()
 
+def mark_batch_as_claimed(batch_id: str):
+    """Marks a batch quote as claimed to prevent reuse."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE batch_quotes SET is_claimed = 1 WHERE batch_id = ?", (batch_id,))
+    conn.commit()
+    conn.close()
+
 
 def get_token_details(reading_id, token):
     """Fetches token details for validation."""
@@ -480,14 +488,7 @@ def get_readings_in_range(start_ts: int, end_ts: int) -> list[dict]:
     conn.close()
     return [dict(row) for row in rows]
 
-# You will also need these small helper functions referenced in the routes
-def mark_batch_as_claimed(batch_id: str):
-    """Marks a batch quote as claimed to prevent reuse."""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE batch_quotes SET is_claimed = 1 WHERE batch_id = ?", (batch_id,))
-    conn.commit()
-    conn.close()
+\
 
 def get_batch_details_for_fetch(batch_id: str) -> dict | None:
     """
