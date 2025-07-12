@@ -48,18 +48,18 @@ def init_db():
 
         logger.info("[DB_INIT] Attempting to create table access_tokens...")
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS access_tokens (
-                token_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                reading_id INTEGER NOT NULL,
-                payment_txid TEXT NOT NULL, 
-                access_token TEXT NOT NULL UNIQUE,
-                expiry_timestamp INTEGER NOT NULL,
-                usage_count INTEGER DEFAULT 0,
-                max_usage INTEGER DEFAULT 1, 
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (reading_id) REFERENCES sensor_readings (reading_id)
-            )
+        CREATE TABLE IF NOT EXISTS access_tokens (
+        token_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reading_id TEXT NOT NULL,
+        payment_txid TEXT NOT NULL UNIQUE, 
+        access_token TEXT NOT NULL UNIQUE,
+        expiry_timestamp INTEGER NOT NULL,
+        usage_count INTEGER DEFAULT 0,
+        max_usage INTEGER DEFAULT 1, 
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
         ''')
+        cursor.execute("CREATE UNIQUE INDEX IF NOT EXISTS uidx_reading_payment ON access_tokens (reading_id, payment_txid);")
         logger.info("[DB_INIT] CREATE TABLE access_tokens statement executed.")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_access_token ON access_tokens (access_token);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_token_reading_id ON access_tokens (reading_id);")
@@ -151,8 +151,6 @@ def get_latest_claimed_batches(limit: int = 10) -> list[dict]:
     """Fetches the most recently claimed batches from the database."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    # We also need the payment txid, which is stored in the 'access_tokens' table.
-    # So, we need to join the tables.
     cursor.execute("""
         SELECT 
             bq.batch_id, 
@@ -163,7 +161,7 @@ def get_latest_claimed_batches(limit: int = 10) -> list[dict]:
             t.payment_txid,
             t.created_at
         FROM batch_quotes bq
-        JOIN access_tokens t ON bq.batch_id = t.reading_id -- 'reading_id' column now holds batch_id
+        JOIN access_tokens t ON bq.batch_id = t.reading_id
         WHERE bq.is_claimed = 1
         ORDER BY t.created_at DESC
         LIMIT ?
@@ -234,7 +232,7 @@ def save_access_token(reading_id, payment_txid, token, expiry, max_usage):
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute('''
-            INSERT INTO access_tokens (reading_id, payment_txid, access_token, expiry_timestamp, max_usage)
+            INSERT INTO access_tokens (str(reading_id), payment_txid, access_token, expiry_timestamp, max_usage)
             VALUES (?, ?, ?, ?, ?)
         ''', (reading_id, payment_txid, token, expiry, max_usage))
         conn.commit()
