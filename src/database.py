@@ -146,11 +146,11 @@ def get_reading(reading_id: int):
         if conn:
             conn.close()
 
-
 def get_latest_claimed_batches(limit: int = 10) -> list[dict]:
     """Fetches the most recently claimed batches from the database."""
     conn = get_db_connection()
     cursor = conn.cursor()
+    
     cursor.execute("""
         SELECT 
             bq.batch_id, 
@@ -161,7 +161,9 @@ def get_latest_claimed_batches(limit: int = 10) -> list[dict]:
             t.payment_txid,
             t.created_at
         FROM batch_quotes bq
-        JOIN access_tokens t ON bq.batch_id = t.reading_id
+        -- THIS IS THE CORRECTED AND HIGHLY ROBUST JOIN
+        JOIN access_tokens t ON CAST(bq.batch_id AS TEXT) = CAST(t.reading_id AS TEXT)
+        -- END OF CORRECTION
         WHERE bq.is_claimed = 1
         ORDER BY t.created_at DESC
         LIMIT ?
@@ -170,7 +172,6 @@ def get_latest_claimed_batches(limit: int = 10) -> list[dict]:
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
-
 
 def reading_exists(reading_id: int) -> bool:
     """Checks if a reading exists in the database."""
