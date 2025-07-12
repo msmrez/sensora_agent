@@ -231,10 +231,18 @@ def save_access_token(reading_id, payment_txid, token, expiry, max_usage):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO access_tokens (str(reading_id), payment_txid, access_token, expiry_timestamp, max_usage)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (reading_id, payment_txid, token, expiry, max_usage))
+                cursor.execute('''
+            INSERT INTO access_tokens 
+                (reading_id, payment_txid, access_token, expiry_timestamp, max_usage) 
+            VALUES 
+                (?, ?, ?, ?, ?)
+        ''', (
+            str(reading_or_batch_id), # Cast to string to safely handle both ints and strs
+            payment_txid, 
+            access_token, 
+            expiry, 
+            max_usage
+        ))
         conn.commit()
         logger.info(f"Access token for reading {reading_id} saved to database.")
     except sqlite3.IntegrityError as ie:
