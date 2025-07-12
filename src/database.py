@@ -237,7 +237,7 @@ def save_access_token(reading_id, payment_txid, token, expiry, max_usage):
             VALUES 
                 (?, ?, ?, ?, ?)
         ''', (
-            str(reading_or_batch_id), # Cast to string to safely handle both ints and strs
+            str(reading_id), 
             payment_txid, 
             access_token, 
             expiry, 
