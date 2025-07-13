@@ -238,14 +238,14 @@ def register_all_routes(app, device_state):
             "payment_address": device_state.address,
             "payment_instructions": f"Send {total_price} sats to {device_state.address}. OP_RETURN: 'SENSORA_PAY:{batch_id}'."
         })
-        
+   # In sensora_agent/src/routes.py
+
     @app.route("/batch/claim", methods=['POST'])
     def batch_claim_route():
-        logger.info("batch_claim_route function is being CALLED.") # Also add this one
-
         """
         Verifies a payment for a pre-quoted batch and issues an access token.
         """
+        logger.info("batch_claim_route function is being CALLED.")
         data = request.get_json()
         if not data or "batch_id" not in data or "payment_txid" not in data:
             abort(400, "Request must include 'batch_id' and 'payment_txid'.")
@@ -253,18 +253,13 @@ def register_all_routes(app, device_state):
         batch_id = data['batch_id']
         consumer_payment_txid = data['payment_txid']
 
-        # 1. Retrieve the original quote details from our cache/DB.
-        # This prevents the client from trying to claim a batch that wasn't quoted.
         batch_details = database.get_cached_batch_details(batch_id)
         if not batch_details:
             abort(404, f"Batch ID '{batch_id}' not found or has expired. Please request a new price quote.")
 
         expected_price = batch_details['total_price_sats']
-
-        # 2. Verify the payment on-chain.
-        # This util function checks if the txid paid the correct amount to the right address
-        # and has the correct OP_RETURN payload.
         op_return_payload = f"SENSORA_PAY:{batch_id}"
+
         payment_verified, _ = bsv_utils.check_batch_payment_on_chain(
             op_return_payload,
             device_state.address, 
@@ -272,24 +267,20 @@ def register_all_routes(app, device_state):
             consumer_payment_txid,
             expected_price
         )
-    
         
         if not payment_verified:
-            # We use a custom error class here from your existing code
-            raise PaymentRequiredError("Batch payment verification failed. Ensure the amount and OP_RETURN are correct.")
+            raise PaymentRequiredError("Batch payment verification failed.")
 
-        # 3. If payment is verified, generate and save a single access token for the batch.
         access_token = bsv_utils.generate_access_token()
         expiry = int(time.time()) + config.TOKEN_EXPIRY_SECONDS
         
         try:
-            # Note: We are now associating the token with the batch_id.
-            # Your save_access_token function may need a slight adjustment if it
-            # assumes the first argument is always an integer reading_id.
             database.save_access_token(batch_id, consumer_payment_txid, access_token, expiry, config.TOKEN_MAX_USAGE)
             
-            # We can also mark the cached batch as "claimed"
-            database.mark_batch_as_claimed(batch_id)
+            # --- THIS IS THE CORRECTED LINE ---
+            # Pass both the batch_id and the payment_txid to the function.
+            database.mark_batch_as_claimed(batch_id, consumer_payment_txid)
+            # --- END OF CORRECTION ---
 
             return jsonify({
                 "message": "Access token for batch generated.", 
@@ -299,10 +290,7 @@ def register_all_routes(app, device_state):
             }), 201
         except sqlite3.IntegrityError:
             abort(409, "Token for this batch payment may have already been claimed.")
-        except Exception:
+        except Exception as e:
+            # Renamed the logger variable here to avoid conflict with the 'e' from the outer scope if any.
             logger.exception("Server error while issuing batch token.")
             abort(500)
-
-
-
-        
