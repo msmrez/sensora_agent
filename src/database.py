@@ -274,7 +274,8 @@ def mark_batch_as_claimed(batch_id: str):
     cursor.execute(
         "UPDATE batch_quotes SET is_claimed = 1, consumer_payment_txid = ? WHERE batch_id = ?", 
         (payment_txid, batch_id)
-    )    conn.commit()
+    )    
+    conn.commit()
     conn.close()
 
 
