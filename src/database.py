@@ -267,17 +267,25 @@ def save_access_token(reading_id, payment_txid, access_token, expiry_timestamp, 
         if conn:
             conn.close()
 
-def mark_batch_as_claimed(batch_id: str):
-    """Marks a batch quote as claimed to prevent reuse."""
+# In sensora_agent/src/database.py
+
+def mark_batch_as_claimed(batch_id: str, payment_txid: str):
+    """Marks a batch quote as claimed and records the payment TXID."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    cursor.execute(
-        "UPDATE batch_quotes SET is_claimed = 1, consumer_payment_txid = ? WHERE batch_id = ?", 
-        (payment_txid, batch_id)
-    )    
-    conn.commit()
-    conn.close()
-
+    try:
+        cursor.execute(
+            "UPDATE batch_quotes SET is_claimed = 1, consumer_payment_txid = ? WHERE batch_id = ?", 
+            (payment_txid, batch_id)
+        )
+        conn.commit()
+        logger.info(f"Marked batch {batch_id[:8]}... as claimed with payment TXID {payment_txid[:12]}...")
+    except Exception as e:
+        logger.exception(f"Failed to mark batch {batch_id[:8]} as claimed.")
+        # We don't re-raise here, the calling function will handle the overall transaction failure.
+    finally:
+        if conn:
+            conn.close()
 
 def get_token_details(reading_id, token):
     """Fetches token details for validation."""
