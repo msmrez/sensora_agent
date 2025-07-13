@@ -76,15 +76,16 @@ def init_db():
         logger.info("[DB_INIT] CREATE TABLE key_value_store statement executed.")
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS batch_quotes (
-            batch_id TEXT PRIMARY KEY,
-            num_readings INTEGER NOT NULL,
-            total_price_sats INTEGER NOT NULL,
-            start_timestamp INTEGER NOT NULL,
-            end_timestamp INTEGER NOT NULL,
-            created_timestamp INTEGER NOT NULL,
-            is_claimed INTEGER DEFAULT 0
-        );
-    ''')
+        batch_id TEXT PRIMARY KEY,
+        num_readings INTEGER NOT NULL,
+        total_price_sats INTEGER NOT NULL,
+        start_timestamp INTEGER NOT NULL,
+        end_timestamp INTEGER NOT NULL,
+        created_timestamp INTEGER NOT NULL, -- The column exists here
+        is_claimed INTEGER DEFAULT 0,
+        consumer_payment_txid TEXT 
+    );
+''')
 
     # Add an index for faster cleanup of old quotes
         cursor.execute('''
@@ -153,19 +154,13 @@ def get_latest_claimed_batches(limit: int = 10) -> list[dict]:
     
     cursor.execute("""
         SELECT 
-            bq.batch_id, 
-            bq.num_readings, 
-            bq.total_price_sats, 
-            bq.start_timestamp, 
-            bq.end_timestamp,
-            t.payment_txid,
-            t.created_at
-        FROM batch_quotes bq
-        -- THIS IS THE CORRECTED AND HIGHLY ROBUST JOIN
-        JOIN access_tokens t ON CAST(bq.batch_id AS TEXT) = CAST(t.reading_id AS TEXT)
-        -- END OF CORRECTION
-        WHERE bq.is_claimed = 1
-        ORDER BY t.created_at DESC
+            batch_id, num_readings, total_price_sats, 
+            start_timestamp, end_timestamp, 
+            consumer_payment_txid AS payment_txid,
+            created_timestamp  -- Select the timestamp for ordering and display
+        FROM batch_quotes
+        WHERE is_claimed = 1
+        ORDER BY created_timestamp DESC
         LIMIT ?
     """, (limit,))
     
