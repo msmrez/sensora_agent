@@ -32,57 +32,58 @@ def register_all_routes(app, device_state):
     def server_error(error):
         logger.exception("An internal server error occurred")
         return jsonify({"error": "Internal Server Error"}), 500
-    
+
+
+    # In sensora_agent/src/routes.py
+
     @app.route("/")
     def dashboard():
-        logger.info("--- Rendering Agent Dashboard ---")
+        logger.info("--- ENTERED DASHBOARD ROUTE ---")
+        
+        # We will build the context dictionary step-by-step
+        context = {}
+
         try:
-            readings = database.get_latest_readings()
-            logger.info(f"Readings data from DB: {readings}")
-            recent_batches = database.get_latest_claimed_batches(limit=10)
+            # Fetch data and log immediately
+            context['readings'] = database.get_latest_readings()
+            logger.info(f"Dashboard fetched {len(context['readings'])} readings.")
 
-            tokens = database.get_latest_tokens()
-            logger.info(f"Tokens data from DB: {tokens}")
-            
-            last_adv_txid = database.get_key_value('last_adv_txid') or "N/A"
-            logger.info(f"Last Adv TXID: {last_adv_txid}")
+            context['tokens'] = database.get_latest_tokens()
+            logger.info(f"Dashboard fetched {len(context['tokens'])} tokens.")
 
-            reputation_data = reputation.calculate_reputation_score()
-            logger.info(f"Reputation data: {reputation_data}")
+            # --- THIS IS THE CRITICAL TEST ---
+            # Call the function and immediately log the result
+            context['batches'] = database.get_latest_claimed_batches(limit=10)
+            logger.info(f"!!! Dashboard call to get_latest_claimed_batches returned: {context['batches']} !!!")
+            # --- END CRITICAL TEST ---
 
-            chart_data = { "labels": [], "temp_data": [], "humid_data": [] }
-            # This loop needs to be more robust
-            for reading in reversed(readings):
-                # Check if the 'sensor_values' key exists and is a tuple/list of 2
-                if 'sensor_values' in reading and isinstance(reading['sensor_values'], (list, tuple)) and len(reading['sensor_values']) == 2:
-                    chart_data["labels"].append(time.strftime('%H:%M:%S', time.localtime(reading["reading_id"])))
-                    chart_data["temp_data"].append(reading["sensor_values"][0])
-                    chart_data["humid_data"].append(reading["sensor_values"][1])
-            chart_data_json = json.dumps(chart_data)
-            logger.info(f"Chart JSON data: {chart_data_json}")
+            context['last_adv_txid'] = database.get_key_value('last_adv_txid') or "N/A"
+            context['reputation_data'] = reputation.calculate_reputation_score()
+
+            # Add all other necessary variables to the context
+            context['device_ipv6'] = config.DEVICE_IPV6_ADDRESS
+            context['device_payment_address'] = device_state.address
+            context['price_sats'] = config.PRICE_SATS_PER_READING
+            context['DATA_CAPTURE_INTERVAL_SECONDS'] = config.DATA_CAPTURE_INTERVAL_SECONDS
+            context['auto_refresh_interval'] = 30 # Example value
+            context['current_year'] = time.strftime('%Y')
+            context['time'] = time
+
+            # We will not render the template if the crucial data is missing.
+            # This will force a server error instead of a white page.
+            if not context.get('batches'):
+                logger.error("!!! BATCHES IS EMPTY OR NONE. ABORTING TEMPLATE RENDER. !!!")
+                # This will cause a deliberate server crash that we can see in the logs.
+                # It's better than a silent failure.
+                raise ValueError("Batches data is missing, cannot render dashboard.")
+
+            logger.info("--- Data gathering complete. Rendering template. ---")
+            # Use the '**' operator to unpack the dictionary into keyword arguments
+            return render_template("index.html", **context)
 
         except Exception as e:
-            logger.exception("CRITICAL ERROR gathering data for dashboard!")
-            # Return a simple error page instead of a blank one
-            return "<h1>Error</h1><p>An internal error occurred while generating the dashboard. Please check server logs.</p>", 500
-        
-        return render_template(
-            "index.html", 
-            device_ipv6=config.DEVICE_IPV6_ADDRESS,
-            device_payment_address=device_state.address,
-            price_sats=config.PRICE_SATS_PER_READING,
-            readings=readings,
-            tokens=tokens,
-            recent_batches=recent_batches,
-            last_adv_txid=last_adv_txid,
-            reputation_data=reputation_data,
-            chart_data=json.dumps(chart_data),
-            DATA_TYPE_TEMP_HUMID=config.DATA_TYPE_TEMP_HUMID,
-            DATA_CAPTURE_INTERVAL_SECONDS=config.DATA_CAPTURE_INTERVAL_SECONDS,
-            auto_refresh_interval=30,
-            current_year=time.strftime('%Y'),
-            time=time
-        )
+            logger.exception("--- UNHANDLED EXCEPTION IN DASHBOARD ROUTE ---")
+            return "<h1>Internal Server Error</h1><p>An error occurred while building the dashboard. Please check the server logs for the full traceback.</p>", 500
 
     @app.route("/price")
     def get_price_route():
