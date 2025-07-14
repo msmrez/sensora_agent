@@ -216,47 +216,42 @@
                 <th>Payment TXID</th>
               </tr>
             </thead>
-
             <tbody>
-              {# This is a Jinja2 comment. We check if the 'batches' variable
-              exists and has items. #} {% if batches and batches|length > 0 %}
-              {% for batch in batches %}
+              {% if tokens and tokens|length > 0 %} {% for token in tokens %} {%
+              set is_expired = (time.time() | int) >= token.expiry_timestamp %}
+              {% set is_used = token.usage_count >= token.max_usage %}
               <tr>
-                <!-- Safely access batch_id, which is a string -->
-                <td title="{{ batch.batch_id }}">
-                  <span class="code">{{ batch.batch_id[:12] }}...</span>
+                <!-- Smartly display the ID without the problematic filter -->
+                <td title="{{ token.reading_id }}">
+                  <span class="code">
+                    {# Check if the reading_id is a long hex string (a batch) #}
+                    {# We can do this by checking its type, but length is easier
+                    in Jinja #} {# Let's assume a simple length check is
+                    sufficient. A timestamp won't be > 20 chars. #} {% if
+                    token.reading_id|string|length > 20 %} Batch: {{
+                    token.reading_id[:12] }}... {% else %} Reading: {{
+                    token.reading_id }} {% endif %}
+                  </span>
                 </td>
-
-                <!-- Safely format timestamps -->
-                <td>
-                  {% if batch.start_timestamp %} {{ time.strftime('%Y-%m-%d
-                  %H:%M', time.gmtime(batch.start_timestamp)) }} {% endif %} -
-                  {% if batch.end_timestamp %} {{ time.strftime('%Y-%m-%d
-                  %H:%M', time.gmtime(batch.end_timestamp)) }} {% endif %}
+                <td title="{{ token.access_token }}">
+                  <span class="code">{{ token.access_token[:12] }}...</span>
                 </td>
-
-                <!-- Safely access numeric fields -->
-                <td>{{ batch.num_readings }}</td>
-                <td><strong>{{ batch.total_price_sats }} sats</strong></td>
-
-                <!-- Safely access payment_txid for the link. This key MUST match the SQL alias. -->
                 <td>
-                  {% if batch.payment_txid %}
-                  <a
-                    href="https://whatsonchain.com/tx/{{ batch.payment_txid }}"
-                    target="_blank"
-                    class="code"
-                    title="{{ batch.payment_txid }}"
-                  >
-                    {{ batch.payment_txid[:12] }}...
-                  </a>
-                  {% else %} N/A {% endif %}
+                  {{ time.strftime('%Y-%m-%d %H:%M:%S',
+                  time.gmtime(token.expiry_timestamp)) }}
+                </td>
+                <td
+                  class="{{ 'status-expired' if is_expired else ('status-used' if is_used else 'status-paid') }}"
+                >
+                  {% if is_expired %}Expired {% elif is_used %}Used ({{
+                  token.usage_count }}/{{ token.max_usage }}) {% else %}Valid {%
+                  endif %}
                 </td>
               </tr>
               {% endfor %} {% else %}
               <tr>
-                <td colspan="5" style="text-align: center; color: #6c757d">
-                  No batches have been purchased yet.
+                <td colspan="4" style="text-align: center; color: #6c757d">
+                  No access tokens have been issued yet.
                 </td>
               </tr>
               {% endif %}
