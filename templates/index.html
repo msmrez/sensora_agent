@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Sensōra Device Dashboard - {{ device_ipv6 }}</title>
     <style>
-      /* Your CSS is perfect, no changes needed */
       body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
           Helvetica, Arial, sans-serif;
@@ -130,7 +129,6 @@
     <div class="grid-container">
       <h1>Sensōra IoT Device Dashboard</h1>
 
-      <!-- The top four cards are correct as you have them -->
       <div class="card">
         <h3>Device Information</h3>
         <p>
@@ -148,6 +146,7 @@
         </p>
         <p><strong>Price Per Reading:</strong> {{ price_sats }} sats</p>
       </div>
+
       <div class="card">
         <h3>Network Status</h3>
         <p>
@@ -170,6 +169,7 @@
           No activity yet {% endif %}
         </p>
       </div>
+
       <div class="card full-width">
         <h3>Sensor Reputation</h3>
         <div class="reputation-grid">
@@ -200,7 +200,7 @@
         </div>
       </div>
 
-      <!-- === START OF CORRECTION === -->
+      <!-- Recent Batch Purchases Table -->
       <div class="card full-width">
         <h3>Recent Batch Purchases</h3>
         <div class="table-wrapper">
@@ -214,11 +214,12 @@
                 <th>Payment TXID</th>
               </tr>
             </thead>
+            <!-- === START OF CORRECTION === -->
             <tbody>
-              <!-- Use the correct 'batches' variable -->
-              {% if batches and batches%} {% for batch in batches %}
+              <!-- This now correctly loops through the 'batches' variable -->
+              {% if batches and batches|length > 0 %} {% for batch in batches %}
               <tr>
-                <!-- Use the keys from the 'batch' dictionary -->
+                <!-- It now correctly uses the attributes of the 'batch' object -->
                 <td title="{{ batch.batch_id }}">
                   <span class="code">{{ batch.batch_id[:12] }}...</span>
                 </td>
@@ -232,7 +233,7 @@
                 <td><strong>{{ batch.total_price_sats }} sats</strong></td>
                 <td>
                   <a
-                    href="https://bitails.io/tx/{{ batch.payment_txid }}"
+                    href="https://whatsonchain.com/tx/{{ batch.payment_txid }}"
                     target="_blank"
                     class="code"
                     >{{ batch.payment_txid[:12] }}...</a
@@ -240,7 +241,7 @@
                 </td>
               </tr>
               {% endfor %} {% else %}
-              <!-- Use the correct 'else' message -->
+              <!-- This now has the correct message for this table -->
               <tr>
                 <td colspan="5" style="text-align: center; color: #6c757d">
                   No batches have been purchased yet.
@@ -248,12 +249,12 @@
               </tr>
               {% endif %}
             </tbody>
+            <!-- === END OF CORRECTION === -->
           </table>
         </div>
       </div>
-      <!-- === END OF CORRECTION === -->
 
-      <!-- Recent Sensor Readings Table (This was already correct) -->
+      <!-- Recent Sensor Readings Table -->
       <div class="card full-width">
         <h3>Recent Sensor Readings</h3>
         <div class="table-wrapper">
@@ -303,7 +304,7 @@
         </div>
       </div>
 
-      <!-- Issued Access Tokens Table (This was already correct) -->
+      <!-- Issued Access Tokens Table -->
       <div class="card full-width">
         <h3>Issued Access Tokens (Last 10)</h3>
         <div class="table-wrapper">
@@ -358,7 +359,6 @@
       <p id="refresh-info" class="full-width">
         This page will auto-refresh every {{ auto_refresh_interval }} seconds.
       </p>
-
       <div class="footer">
         <p>Sensōra MVP © {{ current_year }}</p>
       </div>
