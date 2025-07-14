@@ -219,24 +219,40 @@
             <tbody>
               {% if batches and batches|length > 0 %} {% for batch in batches %}
               <tr>
-                <td title="{{ batch.batch_id }}">
-                  <span class="code">{{ batch.batch_id[:12] }}...</span>
+                <!-- Safely access batch_id -->
+                <td title="{{ batch.get('batch_id', 'N/A') }}">
+                  <span class="code"
+                    >{{ batch.get('batch_id', 'N/A')[:12] }}...</span
+                  >
                 </td>
+
+                <!-- Safely format timestamps -->
                 <td>
-                  {{ time.strftime('%Y-%m-%d %H:%M',
-                  time.gmtime(batch.start_timestamp)) }} - {{
+                  {% if batch.start_timestamp %} {{ time.strftime('%Y-%m-%d
+                  %H:%M', time.gmtime(batch.start_timestamp)) }} {% else %} ? {%
+                  endif %} - {% if batch.end_timestamp %} {{
                   time.strftime('%Y-%m-%d %H:%M',
-                  time.gmtime(batch.end_timestamp)) }}
+                  time.gmtime(batch.end_timestamp)) }} {% else %} ? {% endif %}
                 </td>
-                <td>{{ batch.num_readings }}</td>
-                <td><strong>{{ batch.total_price_sats }} sats</strong></td>
+
+                <!-- Safely access other numeric fields -->
+                <td>{{ batch.get('num_readings', 0) }}</td>
                 <td>
+                  <strong>{{ batch.get('total_price_sats', 0) }} sats</strong>
+                </td>
+
+                <!-- Safely access payment_txid for the link -->
+                <td>
+                  {% if batch.payment_txid %}
                   <a
                     href="https://whatsonchain.com/tx/{{ batch.payment_txid }}"
                     target="_blank"
                     class="code"
-                    >{{ batch.payment_txid[:12] }}...</a
+                    title="{{ batch.payment_txid }}"
                   >
+                    {{ batch.payment_txid[:12] }}...
+                  </a>
+                  {% else %} N/A {% endif %}
                 </td>
               </tr>
               {% endfor %} {% else %}
