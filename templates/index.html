@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Sensōra Device Dashboard - {{ device_ipv6 }}</title>
     <style>
+      /* Your CSS is perfect, no changes needed */
       body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
           Helvetica, Arial, sans-serif;
@@ -129,6 +130,7 @@
     <div class="grid-container">
       <h1>Sensōra IoT Device Dashboard</h1>
 
+      <!-- The top four cards are correct as you have them -->
       <div class="card">
         <h3>Device Information</h3>
         <p>
@@ -146,63 +148,59 @@
         </p>
         <p><strong>Price Per Reading:</strong> {{ price_sats }} sats</p>
       </div>
-
       <div class="card">
         <h3>Network Status</h3>
         <p>
-          <strong>Last Advertisement TXID:</strong>
-          {% if last_adv_txid and last_adv_txid != "N/A" %}
-          <a
+          <strong>Last Advertisement TXID:</strong> {% if last_adv_txid and
+          last_adv_txid != "N/A" %}<a
             href="https://whatsonchain.com/tx/{{ last_adv_txid }}"
             target="_blank"
             class="code"
             >{{ last_adv_txid[:12] }}...</a
-          >
-          {% else %} N/A {% endif %}
+          >{% else %} N/A {% endif %}
         </p>
         <p>
           <strong>Stamping Interval:</strong> {{ DATA_CAPTURE_INTERVAL_SECONDS
           }} seconds
         </p>
         <p>
-          <strong>Last Activity:</strong>
-          {% if reputation_data.seconds_since_last_activity != -1 %} {{
+          <strong>Last Activity:</strong> {% if
+          reputation_data.seconds_since_last_activity != -1 %} {{
           reputation_data.seconds_since_last_activity }} seconds ago {% else %}
           No activity yet {% endif %}
         </p>
       </div>
-
       <div class="card full-width">
         <h3>Sensor Reputation</h3>
         <div class="reputation-grid">
           <div>
-            <strong>Uptime (Adv. Success)</strong>
-            <span class="score"
+            <strong>Uptime (Adv. Success)</strong
+            ><span class="score"
               >{{ reputation_data.uptime_percentage | round(2) }}%</span
             >
           </div>
           <div>
-            <strong>Stamping Success Rate</strong>
-            <span class="score"
+            <strong>Stamping Success Rate</strong
+            ><span class="score"
               >{{ reputation_data.stamp_success_rate | round(2) }}%</span
             >
           </div>
           <div>
-            <strong>Total Stamped Readings</strong>
-            <span class="score"
+            <strong>Total Stamped Readings</strong
+            ><span class="score"
               >{{ reputation_data.total_stamps_recorded }}</span
             >
           </div>
           <div>
-            <strong>Total Advertisements</strong>
-            <span class="score"
+            <strong>Total Advertisements</strong
+            ><span class="score"
               >{{ reputation_data.total_advertisements_sent }}</span
             >
           </div>
         </div>
       </div>
 
-      <!-- Recent Batch Purchases Table -->
+      <!-- === START OF CORRECTION === -->
       <div class="card full-width">
         <h3>Recent Batch Purchases</h3>
         <div class="table-wrapper">
@@ -217,41 +215,35 @@
               </tr>
             </thead>
             <tbody>
-              {% if tokens and tokens|length > 0 %} {% for token in tokens %} {%
-              set is_expired = (time.time() | int) >= token.expiry_timestamp %}
-              {% set is_used = token.usage_count >= token.max_usage %}
+              <!-- Use the correct 'batches' variable -->
+              {% if batches and batches|length > 0 %} {% for batch in batches %}
               <tr>
-                <!-- Smartly display the ID without the problematic filter -->
-                <td title="{{ token.reading_id }}">
-                  <span class="code">
-                    {# Check if the reading_id is a long hex string (a batch) #}
-                    {# We can do this by checking its type, but length is easier
-                    in Jinja #} {# Let's assume a simple length check is
-                    sufficient. A timestamp won't be > 20 chars. #} {% if
-                    token.reading_id|string|length > 20 %} Batch: {{
-                    token.reading_id[:12] }}... {% else %} Reading: {{
-                    token.reading_id }} {% endif %}
-                  </span>
-                </td>
-                <td title="{{ token.access_token }}">
-                  <span class="code">{{ token.access_token[:12] }}...</span>
+                <!-- Use the keys from the 'batch' dictionary -->
+                <td title="{{ batch.batch_id }}">
+                  <span class="code">{{ batch.batch_id[:12] }}...</span>
                 </td>
                 <td>
-                  {{ time.strftime('%Y-%m-%d %H:%M:%S',
-                  time.gmtime(token.expiry_timestamp)) }}
+                  {{ time.strftime('%Y-%m-%d %H:%M',
+                  time.gmtime(batch.start_timestamp)) }} - {{
+                  time.strftime('%Y-%m-%d %H:%M',
+                  time.gmtime(batch.end_timestamp)) }}
                 </td>
-                <td
-                  class="{{ 'status-expired' if is_expired else ('status-used' if is_used else 'status-paid') }}"
-                >
-                  {% if is_expired %}Expired {% elif is_used %}Used ({{
-                  token.usage_count }}/{{ token.max_usage }}) {% else %}Valid {%
-                  endif %}
+                <td>{{ batch.num_readings }}</td>
+                <td><strong>{{ batch.total_price_sats }} sats</strong></td>
+                <td>
+                  <a
+                    href="https://whatsonchain.com/tx/{{ batch.payment_txid }}"
+                    target="_blank"
+                    class="code"
+                    >{{ batch.payment_txid[:12] }}...</a
+                  >
                 </td>
               </tr>
               {% endfor %} {% else %}
+              <!-- Use the correct 'else' message -->
               <tr>
-                <td colspan="4" style="text-align: center; color: #6c757d">
-                  No access tokens have been issued yet.
+                <td colspan="5" style="text-align: center; color: #6c757d">
+                  No batches have been purchased yet.
                 </td>
               </tr>
               {% endif %}
@@ -259,8 +251,9 @@
           </table>
         </div>
       </div>
+      <!-- === END OF CORRECTION === -->
 
-      <!-- Recent Sensor Readings Table -->
+      <!-- Recent Sensor Readings Table (This was already correct) -->
       <div class="card full-width">
         <h3>Recent Sensor Readings</h3>
         <div class="table-wrapper">
@@ -310,7 +303,7 @@
         </div>
       </div>
 
-      <!-- Issued Access Tokens Table -->
+      <!-- Issued Access Tokens Table (This was already correct) -->
       <div class="card full-width">
         <h3>Issued Access Tokens (Last 10)</h3>
         <div class="table-wrapper">
@@ -345,8 +338,8 @@
                 <td
                   class="{{ 'status-expired' if is_expired else ('status-used' if is_used else 'status-paid') }}"
                 >
-                  {% if is_expired %}Expired {% elif is_used %}Used ({{
-                  token.usage_count }}/{{ token.max_usage }}) {% else %}Valid {%
+                  {% if is_expired %}Expired{% elif is_used %}Used ({{
+                  token.usage_count }}/{{ token.max_usage }}){% else %}Valid{%
                   endif %}
                 </td>
               </tr>
@@ -370,7 +363,5 @@
         <p>Sensōra MVP © {{ current_year }}</p>
       </div>
     </div>
-
-    <!-- The script tag and its content have been completely removed as requested -->
   </body>
 </html>
