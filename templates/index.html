@@ -4,8 +4,6 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Sensōra Device Dashboard - {{ device_ipv6 }}</title>
-    <!-- Include Chart.js from a CDN -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
       body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
@@ -85,10 +83,6 @@
       a:hover {
         text-decoration: underline;
       }
-      .info-box p {
-        margin: 8px 0;
-        font-size: 1.1em;
-      }
       .code {
         font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
         background-color: #f0f2f5;
@@ -135,7 +129,6 @@
     <div class="grid-container">
       <h1>Sensōra IoT Device Dashboard</h1>
 
-      <!-- Restored Top-Half of Dashboard -->
       <div class="card">
         <h3>Device Information</h3>
         <p>
@@ -209,12 +202,7 @@
         </div>
       </div>
 
-      <div class="card full-width">
-        <h3>Paid Data Visualization</h3>
-        <canvas id="sensorChart"></canvas>
-      </div>
-
-      <!-- NEW: Recent Batch Purchases Table -->
+      <!-- Recent Batch Purchases Table -->
       <div class="card full-width">
         <h3>Recent Batch Purchases</h3>
         <div class="table-wrapper">
@@ -374,58 +362,6 @@
       </div>
     </div>
 
-    <script>
-      const chartData = JSON.parse("{{ chart_data | safe }}");
-      if (chartData.labels.length > 0) {
-        const ctx = document.getElementById("sensorChart").getContext("2d");
-        const sensorChart = new Chart(ctx, {
-          type: "line",
-          data: {
-            labels: chartData.labels,
-            datasets: [
-              {
-                label: "Temperature (°C)",
-                data: chartData.temp_data,
-                borderColor: "rgb(255, 99, 132)",
-                backgroundColor: "rgba(255, 99, 132, 0.1)",
-                yAxisID: "y_temp",
-                tension: 0.1,
-              },
-              {
-                label: "Humidity (%)",
-                data: chartData.humid_data,
-                borderColor: "rgb(54, 162, 235)",
-                backgroundColor: "rgba(54, 162, 235, 0.1)",
-                yAxisID: "y_humid",
-                tension: 0.1,
-              },
-            ],
-          },
-          options: {
-            responsive: true,
-            interaction: { mode: "index", intersect: false },
-            scales: {
-              x: {
-                display: true,
-                title: { display: true, text: "Time (HH:MM:SS)" },
-              },
-              y_temp: {
-                type: "linear",
-                display: true,
-                position: "left",
-                title: { display: true, text: "Temperature (°C)" },
-              },
-              y_humid: {
-                type: "linear",
-                display: true,
-                position: "right",
-                title: { display: true, text: "Humidity (%)" },
-                grid: { drawOnChartArea: false },
-              },
-            },
-          },
-        });
-      }
-    </script>
+    <!-- The script tag and its content have been completely removed as requested -->
   </body>
 </html>
