@@ -294,3 +294,24 @@ def register_all_routes(app, device_state):
             # Renamed the logger variable here to avoid conflict with the 'e' from the outer scope if any.
             logger.exception("Server error while issuing batch token.")
             abort(500)
+    # In sensora_agent/src/routes.py
+
+# ... (inside register_all_routes)
+
+    # --- ADD THIS TEMPORARY DEBUG ENDPOINT ---
+    @app.route("/debug/batches", methods=['GET'])
+    def debug_batches_route():
+        """
+        A temporary endpoint to fetch raw data from the get_latest_claimed_batches function.
+        """
+        logger.info("--- DEBUG: Calling get_latest_claimed_batches ---")
+        try:
+            # Call the exact same function the dashboard uses
+            claimed_batches = database.get_latest_claimed_batches(limit=10)
+            logger.info(f"--- DEBUG: Function returned: {claimed_batches} ---")
+            
+            # Return the raw Python list as JSON
+            return jsonify(claimed_batches)
+        except Exception as e:
+            logger.exception(f"--- DEBUG: Error in get_latest_claimed_batches: {e} ---")
+            return jsonify({"error": str(e)}), 500
