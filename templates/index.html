@@ -216,7 +216,7 @@
             </thead>
             <tbody>
               <!-- Use the correct 'batches' variable -->
-              {% if batches and batches|length > 0 %} {% for batch in batches %}
+              {% if batches and batches%} {% for batch in batches %}
               <tr>
                 <!-- Use the keys from the 'batch' dictionary -->
                 <td title="{{ batch.batch_id }}">
@@ -232,7 +232,7 @@
                 <td><strong>{{ batch.total_price_sats }} sats</strong></td>
                 <td>
                   <a
-                    href="https://whatsonchain.com/tx/{{ batch.payment_txid }}"
+                    href="https://bitails.io/tx/{{ batch.payment_txid }}"
                     target="_blank"
                     class="code"
                     >{{ batch.payment_txid[:12] }}...</a
