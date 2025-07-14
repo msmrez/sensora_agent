@@ -4,9 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Sensōra Device Dashboard - {{ device_ipv6 }}</title>
+    <!-- Include Chart.js from a CDN -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-      /* Your existing CSS is fine, no changes needed here */
       body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
           Helvetica, Arial, sans-serif;
@@ -135,15 +135,84 @@
     <div class="grid-container">
       <h1>Sensōra IoT Device Dashboard</h1>
 
-      <!-- Device Info & Network Status Cards (These are fine) -->
-      <div class="card">...</div>
-      <div class="card">...</div>
-      <div class="card full-width">...</div>
-      <!-- Reputation -->
-      <div class="card full-width">...</div>
-      <!-- Chart -->
+      <!-- Restored Top-Half of Dashboard -->
+      <div class="card">
+        <h3>Device Information</h3>
+        <p>
+          <strong>IPv6 Address:</strong>
+          <span class="code">{{ device_ipv6 }}</span>
+        </p>
+        <p>
+          <strong>BSV Address:</strong>
+          <a
+            href="https://whatsonchain.com/address/{{ device_payment_address }}"
+            target="_blank"
+            class="code"
+            >{{ device_payment_address }}</a
+          >
+        </p>
+        <p><strong>Price Per Reading:</strong> {{ price_sats }} sats</p>
+      </div>
 
-      <!-- === START OF CORRECTIONS === -->
+      <div class="card">
+        <h3>Network Status</h3>
+        <p>
+          <strong>Last Advertisement TXID:</strong>
+          {% if last_adv_txid and last_adv_txid != "N/A" %}
+          <a
+            href="https://whatsonchain.com/tx/{{ last_adv_txid }}"
+            target="_blank"
+            class="code"
+            >{{ last_adv_txid[:12] }}...</a
+          >
+          {% else %} N/A {% endif %}
+        </p>
+        <p>
+          <strong>Stamping Interval:</strong> {{ DATA_CAPTURE_INTERVAL_SECONDS
+          }} seconds
+        </p>
+        <p>
+          <strong>Last Activity:</strong>
+          {% if reputation_data.seconds_since_last_activity != -1 %} {{
+          reputation_data.seconds_since_last_activity }} seconds ago {% else %}
+          No activity yet {% endif %}
+        </p>
+      </div>
+
+      <div class="card full-width">
+        <h3>Sensor Reputation</h3>
+        <div class="reputation-grid">
+          <div>
+            <strong>Uptime (Adv. Success)</strong>
+            <span class="score"
+              >{{ reputation_data.uptime_percentage | round(2) }}%</span
+            >
+          </div>
+          <div>
+            <strong>Stamping Success Rate</strong>
+            <span class="score"
+              >{{ reputation_data.stamp_success_rate | round(2) }}%</span
+            >
+          </div>
+          <div>
+            <strong>Total Stamped Readings</strong>
+            <span class="score"
+              >{{ reputation_data.total_stamps_recorded }}</span
+            >
+          </div>
+          <div>
+            <strong>Total Advertisements</strong>
+            <span class="score"
+              >{{ reputation_data.total_advertisements_sent }}</span
+            >
+          </div>
+        </div>
+      </div>
+
+      <div class="card full-width">
+        <h3>Paid Data Visualization</h3>
+        <canvas id="sensorChart"></canvas>
+      </div>
 
       <!-- NEW: Recent Batch Purchases Table -->
       <div class="card full-width">
@@ -194,7 +263,7 @@
         </div>
       </div>
 
-      <!-- Corrected: Recent Sensor Readings Table -->
+      <!-- Recent Sensor Readings Table -->
       <div class="card full-width">
         <h3>Recent Sensor Readings</h3>
         <div class="table-wrapper">
@@ -213,7 +282,6 @@
                 <td>{{ reading.reading_id }}</td>
                 <td>
                   {% if reading.paid %}
-                  <!-- Use sensor_values which is already a tuple -->
                   <strong style="color: #31a24c"
                     >{{ reading.sensor_values[0] }} °C, {{
                     reading.sensor_values[1] }} %</strong
@@ -245,7 +313,7 @@
         </div>
       </div>
 
-      <!-- Corrected: Issued Access Tokens Table -->
+      <!-- Issued Access Tokens Table -->
       <div class="card full-width">
         <h3>Issued Access Tokens (Last 10)</h3>
         <div class="table-wrapper">
@@ -263,10 +331,9 @@
               set is_expired = (time.time() | int) >= token.expiry_timestamp %}
               {% set is_used = token.usage_count >= token.max_usage %}
               <tr>
-                <!-- Smartly display the ID -->
                 <td title="{{ token.reading_id }}">
                   <span class="code">
-                    {% if token.reading_id | length > 20 %} Batch: {{
+                    {% if token.reading_id | string | length > 20 %} Batch: {{
                     token.reading_id[:12] }}... {% else %} Reading: {{
                     token.reading_id }} {% endif %}
                   </span>
@@ -298,16 +365,17 @@
         </div>
       </div>
 
-      <!-- Footer (This is fine) -->
-      <p id="refresh-info" class="full-width">...</p>
-      <div class="footer">...</div>
+      <p id="refresh-info" class="full-width">
+        This page will auto-refresh every {{ auto_refresh_interval }} seconds.
+      </p>
+
+      <div class="footer">
+        <p>Sensōra MVP © {{ current_year }}</p>
+      </div>
     </div>
 
     <script>
-      // Pass chart data from Flask/Jinja2 to JavaScript
       const chartData = JSON.parse("{{ chart_data | safe }}");
-
-      // Check if there is data to display to avoid creating an empty chart
       if (chartData.labels.length > 0) {
         const ctx = document.getElementById("sensorChart").getContext("2d");
         const sensorChart = new Chart(ctx, {
@@ -335,10 +403,7 @@
           },
           options: {
             responsive: true,
-            interaction: {
-              mode: "index",
-              intersect: false,
-            },
+            interaction: { mode: "index", intersect: false },
             scales: {
               x: {
                 display: true,
@@ -355,7 +420,7 @@
                 display: true,
                 position: "right",
                 title: { display: true, text: "Humidity (%)" },
-                grid: { drawOnChartArea: false }, // only draw grid for first Y axis
+                grid: { drawOnChartArea: false },
               },
             },
           },
