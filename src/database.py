@@ -269,15 +269,26 @@ def mark_batch_as_claimed(batch_id: str, payment_txid: str):
     conn = get_db_connection()
     cursor = conn.cursor()
     try:
+        logger.info(f"Attempting to mark batch {batch_id[:8]} as claimed with TXID {payment_txid[:12]}...")
+        
+        # Double-check table and column names here
         cursor.execute(
             "UPDATE batch_quotes SET is_claimed = 1, consumer_payment_txid = ? WHERE batch_id = ?", 
             (payment_txid, batch_id)
         )
+        
         conn.commit()
-        logger.info(f"Marked batch {batch_id[:8]}... as claimed with payment TXID {payment_txid[:12]}...")
+        
+        # Add a verification log. rows_affected should be 1.
+        rows_affected = cursor.rowcount
+        if rows_affected > 0:
+            logger.info(f"Successfully marked batch {batch_id[:8]} as claimed. Rows affected: {rows_affected}")
+        else:
+            logger.error(f"FAILED to mark batch {batch_id[:8]} as claimed. The UPDATE query did not affect any rows.")
+
     except Exception as e:
-        logger.exception(f"Failed to mark batch {batch_id[:8]} as claimed.")
-        # We don't re-raise here, the calling function will handle the overall transaction failure.
+        # This will now print the exact SQL error to your log.
+        logger.exception(f"CRITICAL ERROR in mark_batch_as_claimed for batch_id {batch_id[:8]}: {e}")
     finally:
         if conn:
             conn.close()
