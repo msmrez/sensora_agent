@@ -214,43 +214,50 @@
                 <th>Payment TXID</th>
               </tr>
             </thead>
-            <!-- Inside the "Recent Batch Purchases" table -->
+
             <tbody>
-              {# This is a temporary debug block. #} {% if batches and
-              batches|length > 0 %} {% for batch in batches %}
+              {% if batches and batches|length > 0 %} {% for batch in batches %}
               <tr>
-                <!-- We will display the RAW data with no formatting -->
-                <td>{{ batch.batch_id }}</td>
-                <td>{{ batch.start_timestamp }} - {{ batch.end_timestamp }}</td>
-                <td>{{ batch.num_readings }}</td>
-                <td>{{ batch.total_price_sats }}</td>
-                <td>{{ batch.payment_txid }}</td>
-              </tr>
-              {% endfor %}
-              <!-- Add a special row to dump the entire raw variable -->
-              <tr>
-                <td colspan="5">
-                  <p><strong>Raw 'batches' variable content:</strong></p>
-                  <pre
-                    style="
-                      white-space: pre-wrap;
-                      word-break: break-all;
-                      background-color: #eee;
-                      padding: 10px;
-                    "
-                  >
-{{ batches }}</pre
+                <!-- Safely access and slice the batch_id -->
+                <td title="{{ batch.get('batch_id', 'N/A') }}">
+                  <span class="code"
+                    >{{ batch.get('batch_id', '')[:12] }}...</span
                   >
                 </td>
+
+                <!-- Safely format the timestamps -->
+                <td>
+                  {% if batch.start_timestamp %} {{ time.strftime('%Y-%m-%d
+                  %H:%M', time.gmtime(batch.start_timestamp)) }} {% else %} ? {%
+                  endif %} - {% if batch.end_timestamp %} {{
+                  time.strftime('%Y-%m-%d %H:%M',
+                  time.gmtime(batch.end_timestamp)) }} {% else %} ? {% endif %}
+                </td>
+
+                <!-- Safely access numeric fields -->
+                <td>{{ batch.get('num_readings', 0) }}</td>
+                <td>
+                  <strong>{{ batch.get('total_price_sats', 0) }} sats</strong>
+                </td>
+
+                <!-- Safely create the link for the payment_txid -->
+                <td>
+                  {% if batch.payment_txid %}
+                  <a
+                    href="https://bitails.io/tx/{{ batch.payment_txid }}"
+                    target="_blank"
+                    class="code"
+                    title="{{ batch.payment_txid }}"
+                  >
+                    {{ batch.payment_txid[:12] }}...
+                  </a>
+                  {% else %} N/A {% endif %}
+                </td>
               </tr>
-              {% else %}
+              {% endfor %} {% else %}
               <tr>
-                <td
-                  colspan="5"
-                  style="text-align: center; color: #e02c4d; font-weight: bold"
-                >
-                  DEBUG: The 'batches' variable is empty or does not exist. The
-                  problem is in the Python `dashboard()` route.
+                <td colspan="5" style="text-align: center; color: #6c757d">
+                  No batches have been purchased yet.
                 </td>
               </tr>
               {% endif %}
