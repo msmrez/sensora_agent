@@ -216,32 +216,30 @@
                 <th>Payment TXID</th>
               </tr>
             </thead>
+
             <tbody>
-              {% if batches and batches|length > 0 %} {% for batch in batches %}
+              {# This is a Jinja2 comment. We check if the 'batches' variable
+              exists and has items. #} {% if batches and batches|length > 0 %}
+              {% for batch in batches %}
               <tr>
-                <!-- Safely access batch_id -->
-                <td title="{{ batch.get('batch_id', 'N/A') }}">
-                  <span class="code"
-                    >{{ batch.get('batch_id', 'N/A')[:12] }}...</span
-                  >
+                <!-- Safely access batch_id, which is a string -->
+                <td title="{{ batch.batch_id }}">
+                  <span class="code">{{ batch.batch_id[:12] }}...</span>
                 </td>
 
                 <!-- Safely format timestamps -->
                 <td>
                   {% if batch.start_timestamp %} {{ time.strftime('%Y-%m-%d
-                  %H:%M', time.gmtime(batch.start_timestamp)) }} {% else %} ? {%
-                  endif %} - {% if batch.end_timestamp %} {{
-                  time.strftime('%Y-%m-%d %H:%M',
-                  time.gmtime(batch.end_timestamp)) }} {% else %} ? {% endif %}
+                  %H:%M', time.gmtime(batch.start_timestamp)) }} {% endif %} -
+                  {% if batch.end_timestamp %} {{ time.strftime('%Y-%m-%d
+                  %H:%M', time.gmtime(batch.end_timestamp)) }} {% endif %}
                 </td>
 
-                <!-- Safely access other numeric fields -->
-                <td>{{ batch.get('num_readings', 0) }}</td>
-                <td>
-                  <strong>{{ batch.get('total_price_sats', 0) }} sats</strong>
-                </td>
+                <!-- Safely access numeric fields -->
+                <td>{{ batch.num_readings }}</td>
+                <td><strong>{{ batch.total_price_sats }} sats</strong></td>
 
-                <!-- Safely access payment_txid for the link -->
+                <!-- Safely access payment_txid for the link. This key MUST match the SQL alias. -->
                 <td>
                   {% if batch.payment_txid %}
                   <a
