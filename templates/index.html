@@ -138,7 +138,7 @@
         <p>
           <strong>BSV Address:</strong>
           <a
-            href="https://whatsonchain.com/address/{{ device_payment_address }}"
+            href="https://bitails.io/address/{{ device_payment_address }}"
             target="_blank"
             class="code"
             >{{ device_payment_address }}</a
@@ -152,7 +152,7 @@
         <p>
           <strong>Last Advertisement TXID:</strong> {% if last_adv_txid and
           last_adv_txid != "N/A" %}<a
-            href="https://whatsonchain.com/tx/{{ last_adv_txid }}"
+            href="https://bitails.io/tx/{{ last_adv_txid }}"
             target="_blank"
             class="code"
             >{{ last_adv_txid[:12] }}...</a
@@ -214,42 +214,47 @@
                 <th>Payment TXID</th>
               </tr>
             </thead>
-            <!-- === START OF CORRECTION === -->
+            <!-- Inside the "Recent Batch Purchases" table -->
             <tbody>
-              <!-- This now correctly loops through the 'batches' variable -->
-              {% if batches and batches|length > 0 %} {% for batch in batches %}
+              {# This is a temporary debug block. #} {% if batches and
+              batches|length > 0 %} {% for batch in batches %}
               <tr>
-                <!-- It now correctly uses the attributes of the 'batch' object -->
-                <td title="{{ batch.batch_id }}">
-                  <span class="code">{{ batch.batch_id[:12] }}...</span>
-                </td>
-                <td>
-                  {{ time.strftime('%Y-%m-%d %H:%M',
-                  time.gmtime(batch.start_timestamp)) }} - {{
-                  time.strftime('%Y-%m-%d %H:%M',
-                  time.gmtime(batch.end_timestamp)) }}
-                </td>
+                <!-- We will display the RAW data with no formatting -->
+                <td>{{ batch.batch_id }}</td>
+                <td>{{ batch.start_timestamp }} - {{ batch.end_timestamp }}</td>
                 <td>{{ batch.num_readings }}</td>
-                <td><strong>{{ batch.total_price_sats }} sats</strong></td>
-                <td>
-                  <a
-                    href="https://whatsonchain.com/tx/{{ batch.payment_txid }}"
-                    target="_blank"
-                    class="code"
-                    >{{ batch.payment_txid[:12] }}...</a
+                <td>{{ batch.total_price_sats }}</td>
+                <td>{{ batch.payment_txid }}</td>
+              </tr>
+              {% endfor %}
+              <!-- Add a special row to dump the entire raw variable -->
+              <tr>
+                <td colspan="5">
+                  <p><strong>Raw 'batches' variable content:</strong></p>
+                  <pre
+                    style="
+                      white-space: pre-wrap;
+                      word-break: break-all;
+                      background-color: #eee;
+                      padding: 10px;
+                    "
+                  >
+{{ batches }}</pre
                   >
                 </td>
               </tr>
-              {% endfor %} {% else %}
-              <!-- This now has the correct message for this table -->
+              {% else %}
               <tr>
-                <td colspan="5" style="text-align: center; color: #6c757d">
-                  No batches have been purchased yet.
+                <td
+                  colspan="5"
+                  style="text-align: center; color: #e02c4d; font-weight: bold"
+                >
+                  DEBUG: The 'batches' variable is empty or does not exist. The
+                  problem is in the Python `dashboard()` route.
                 </td>
               </tr>
               {% endif %}
             </tbody>
-            <!-- === END OF CORRECTION === -->
           </table>
         </div>
       </div>
@@ -285,7 +290,7 @@
                 </td>
                 <td>
                   <a
-                    href="https://whatsonchain.com/tx/{{ reading.onchain_proof_txid }}"
+                    href="https://bitails.io/tx/{{ reading.onchain_proof_txid }}"
                     target="_blank"
                     class="code"
                     >{{ reading.onchain_proof_txid[:12] }}...{{
