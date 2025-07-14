@@ -1,272 +1,366 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Sensōra Device Dashboard - {{ device_ipv6 }}</title>
-    <!-- Include Chart.js from a CDN -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 0; background-color: #f0f2f5; color: #1c1e21; line-height: 1.6; }
-        .grid-container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; padding: 20px; max-width: 1600px; margin: auto; }
-        .card { background-color: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1), 0 8px 16px rgba(0,0,0,0.1); padding: 20px; }
-        h1, h2, h3 { color: #1d2129; margin-top: 0; }
-        h1 { grid-column: 1 / -1; text-align: center; font-size: 2.5em; color: #0056b3; }
-        h3 { border-bottom: 1px solid #e9ecef; padding-bottom: 10px; margin-bottom: 15px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 0.9em; }
-        th, td { border-bottom: 1px solid #ddd; padding: 12px 15px; text-align: left; vertical-align: middle;}
-        th { background-color: #f5f6f7; font-weight: 600; }
-        tr:hover { background-color: #f5f6f7; }
-        .status-paid { color: #31a24c; font-weight: bold; }
-        .status-awaiting { color: #f5982e; }
-        .status-expired, .status-used { color: #e02c4d; }
-        a { color: #0c66ff; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        .info-box p { margin: 8px 0; font-size: 1.1em; }
-        .code { font-family: Menlo, Monaco, Consolas, "Courier New", monospace; background-color: #f0f2f5; padding: 3px 6px; border-radius: 4px; font-size: 0.9em; word-break: break-all;}
-        #refresh-info { grid-column: 1 / -1; font-size: 0.8em; color: #606770; text-align: center; padding-top: 10px; }
-        .full-width { grid-column: 1 / -1; }
-        .table-wrapper { max-height: 400px; overflow-y: auto; }
-        .reputation-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; text-align: center; }
-        .reputation-grid div { background-color: #f5f6f7; padding: 15px; border-radius: 6px; }
-        .reputation-grid .score { display: block; font-size: 1.8em; font-weight: 600; color: #0056b3; margin-top: 5px; }
-        .footer { grid-column: 1 / -1; text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #dee2e6; font-size: 0.9em; color: #6c757d;}
+      /* Your existing CSS is fine, no changes needed here */
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Helvetica, Arial, sans-serif;
+        margin: 0;
+        padding: 0;
+        background-color: #f0f2f5;
+        color: #1c1e21;
+        line-height: 1.6;
+      }
+      .grid-container {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 20px;
+        padding: 20px;
+        max-width: 1600px;
+        margin: auto;
+      }
+      .card {
+        background-color: #fff;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1), 0 8px 16px rgba(0, 0, 0, 0.1);
+        padding: 20px;
+      }
+      h1,
+      h2,
+      h3 {
+        color: #1d2129;
+        margin-top: 0;
+      }
+      h1 {
+        grid-column: 1 / -1;
+        text-align: center;
+        font-size: 2.5em;
+        color: #0056b3;
+      }
+      h3 {
+        border-bottom: 1px solid #e9ecef;
+        padding-bottom: 10px;
+        margin-bottom: 15px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 15px;
+        font-size: 0.9em;
+      }
+      th,
+      td {
+        border-bottom: 1px solid #ddd;
+        padding: 12px 15px;
+        text-align: left;
+        vertical-align: middle;
+      }
+      th {
+        background-color: #f5f6f7;
+        font-weight: 600;
+      }
+      tr:hover {
+        background-color: #f5f6f7;
+      }
+      .status-paid {
+        color: #31a24c;
+        font-weight: bold;
+      }
+      .status-awaiting {
+        color: #f5982e;
+      }
+      .status-expired,
+      .status-used {
+        color: #e02c4d;
+      }
+      a {
+        color: #0c66ff;
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      .info-box p {
+        margin: 8px 0;
+        font-size: 1.1em;
+      }
+      .code {
+        font-family: Menlo, Monaco, Consolas, "Courier New", monospace;
+        background-color: #f0f2f5;
+        padding: 3px 6px;
+        border-radius: 4px;
+        font-size: 0.9em;
+        word-break: break-all;
+      }
+      .full-width {
+        grid-column: 1 / -1;
+      }
+      .table-wrapper {
+        max-height: 400px;
+        overflow-y: auto;
+      }
+      .reputation-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        text-align: center;
+      }
+      .reputation-grid .score {
+        display: block;
+        font-size: 1.8em;
+        font-weight: 600;
+        color: #0056b3;
+        margin-top: 5px;
+      }
+      .footer {
+        grid-column: 1 / -1;
+        text-align: center;
+        margin-top: 30px;
+        padding-top: 20px;
+        border-top: 1px solid #dee2e6;
+        font-size: 0.9em;
+        color: #6c757d;
+      }
     </style>
     {% if auto_refresh_interval > 0 %}
-    <meta http-equiv="refresh" content="{{ auto_refresh_interval }}">
+    <meta http-equiv="refresh" content="{{ auto_refresh_interval }}" />
     {% endif %}
-</head>
-<body>
+  </head>
+  <body>
     <div class="grid-container">
-        <h1>Sensōra IoT Device Dashboard</h1>
+      <h1>Sensōra IoT Device Dashboard</h1>
 
-        <div class="card">
-            <h3>Device Information</h3>
-            <p><strong>IPv6 Address:</strong> <span class="code">{{ device_ipv6 }}</span></p>
-            <p><strong>BSV Address:</strong> <a href="https://bitails.io/address/{{ device_payment_address }}" target="_blank" class="code">{{ device_payment_address }}</a></p>
-            <p><strong>Price Per Reading:</strong> {{ price_sats }} sats</p>
-        </div>
+      <!-- Device Info & Network Status Cards (These are fine) -->
+      <div class="card">...</div>
+      <div class="card">...</div>
+      <div class="card full-width">...</div>
+      <!-- Reputation -->
+      <div class="card full-width">...</div>
+      <!-- Chart -->
 
-        <div class="card">
-            <h3>Network Status</h3>
-            <p><strong>Last Advertisement TXID:</strong> 
-                {% if last_adv_txid != "N/A" %}
-                    <a href="https://bitails.io/tx/{{ last_adv_txid }}" target="_blank" class="code">{{ last_adv_txid[:12] }}...</a>
-                {% else %}
-                    {{ last_adv_txid }}
-                {% endif %}
-            </p>
-            <p><strong>Stamping Interval:</strong> {{ DATA_CAPTURE_INTERVAL_SECONDS }} seconds</p>
-            <p><strong>Last Activity:</strong> 
-                {% if reputation_data.seconds_since_last_activity != -1 %}
-                    {{ reputation_data.seconds_since_last_activity }} seconds ago
-                {% else %}
-                    No activity yet
-                {% endif %}
-            </p>
-        </div>
-<div class="card full-width">
-    <h3>Sensor Reputation</h3>
-    <div class="reputation-grid">
-        <div>
-            <strong>Uptime (Adv. Success)</strong>
-            <!-- Use the default filter to prevent errors if the key is missing -->
-            <span class="score">{{ reputation_data.uptime_percentage | default('N/A') }}%</span>
-        </div>
-        <div>
-            <strong>Stamping Success Rate</strong>
-            <span class="score">{{ reputation_data.stamp_success_rate | default('N/A') }}%</span>
-        </div>
-        <div>
-            <strong>Total Stamped Readings</strong>
-            <span class="score">{{ reputation_data.total_stamps_recorded | default(0) }}</span>
-        </div>
-        <div>
-            <strong>Total Advertisements</strong>
-            <span class="score">{{ reputation_data.total_advertisements_sent | default(0) }}</span>
-        </div>
-    </div>
-</div>
+      <!-- === START OF CORRECTIONS === -->
 
-        <div class="card full-width">
-            <h3>Paid Data Visualization</h3>
-            <canvas id="sensorChart"></canvas>
-        </div>
-<div class="card full-width">
-    <h3>Recent Batch Purchases</h3>
-    <div class="table-wrapper">
-        <table>
+      <!-- NEW: Recent Batch Purchases Table -->
+      <div class="card full-width">
+        <h3>Recent Batch Purchases</h3>
+        <div class="table-wrapper">
+          <table>
             <thead>
-                <tr>
-                    <th>Batch ID</th>
-                    <th>Time Range</th>
-                    <th># Readings</th>
-                    <th>Price Paid</th>
-                    <th>Payment TXID</th>
-                </tr>
+              <tr>
+                <th>Batch ID</th>
+                <th>Time Range (UTC)</th>
+                <th># Readings</th>
+                <th>Price Paid</th>
+                <th>Payment TXID</th>
+              </tr>
             </thead>
             <tbody>
-                {% if batches %}
-                    {% for batch in batches %}
-                    <tr>
-                        <td title="{{ batch.batch_id }}"><span class="code">{{ batch.batch_id[:12] }}...</span></td>
-                        <td>
-                            {{ time.strftime('%Y-%m-%d %H:%M', time.gmtime(batch.start_timestamp)) }}
-                            -
-                            {{ time.strftime('%Y-%m-%d %H:%M', time.gmtime(batch.end_timestamp)) }}
-                        </td>
-                        <td>{{ batch.num_readings }}</td>
-                        <td><strong>{{ batch.total_price_sats }} sats</strong></td>
-                        <td>
-                            <a href="https://whatsonchain.com/tx/{{ batch.payment_txid }}" target="_blank" class="code">{{ batch.payment_txid[:12] }}...</a>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                {% else %}
-                    <tr>
-                        <td colspan="5" style="text-align: center; color: #6c757d;">No batches have been purchased yet.</td>
-                    </tr>
-                {% endif %}
+              {% if batches and batches|length > 0 %} {% for batch in batches %}
+              <tr>
+                <td title="{{ batch.batch_id }}">
+                  <span class="code">{{ batch.batch_id[:12] }}...</span>
+                </td>
+                <td>
+                  {{ time.strftime('%Y-%m-%d %H:%M',
+                  time.gmtime(batch.start_timestamp)) }} - {{
+                  time.strftime('%Y-%m-%d %H:%M',
+                  time.gmtime(batch.end_timestamp)) }}
+                </td>
+                <td>{{ batch.num_readings }}</td>
+                <td><strong>{{ batch.total_price_sats }} sats</strong></td>
+                <td>
+                  <a
+                    href="https://whatsonchain.com/tx/{{ batch.payment_txid }}"
+                    target="_blank"
+                    class="code"
+                    >{{ batch.payment_txid[:12] }}...</a
+                  >
+                </td>
+              </tr>
+              {% endfor %} {% else %}
+              <tr>
+                <td colspan="5" style="text-align: center; color: #6c757d">
+                  No batches have been purchased yet.
+                </td>
+              </tr>
+              {% endif %}
             </tbody>
-        </table>
-    </div>
-</div>
-
-        <div class="card full-width">
-            <h3>Recent Sensor Readings</h3>
-            <div class="table-wrapper">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Reading ID (Timestamp)</th>
-                            <th>Sensor Values</th>
-                            <th>On-Chain Proof TXID</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for reading in readings %}
-                        <tr>
-                            <td>{{ reading.reading_id }}</td>
-                            <td>
-                                {% if reading.paid %}
-                                    <strong style="color: #31a24c;">{{ reading.sensor_values[0] }} °C, {{ reading.sensor_values[1] }} %</strong>
-                                {% else %}
-                                    <span class="status-awaiting">Data Locked - Payment Required</span>
-                                {% endif %}
-                            </td>
-                            <td><a href="https://bitails.io/tx/{{ reading.onchain_proof_txid }}" target="_blank" class="code">{{ reading.onchain_proof_txid[:12] }}...{{ reading.onchain_proof_txid[-4:] }}</a></td>
-                            <td class="{{ 'status-paid' if reading.paid else 'status-awaiting' }}">
-                                {{ "Paid" if reading.paid else "Awaiting Payment" }}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
+          </table>
         </div>
+      </div>
 
-        <div class="card full-width">
-            <h3>Issued Access Tokens (Last 10)</h3>
-            <div class="table-wrapper">
-                 <table>
-                    <thead>
-                        <tr>
-                            <th>For Reading ID</th>
-                            <th>Access Token</th>
-                            <th>Expires At (UTC)</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% if tokens %}
-                            {% for token in tokens %}
-                            {% set is_expired = (time.time() | int) >= token.expiry_timestamp %}
-                            {% set is_used = token.usage_count >= token.max_usage %}
-                            <tr>
-                                <td>{{ token.reading_id }}</td>
-                                <td><span class="code" title="{{ token.access_token }}">{{ token.access_token[:12] }}...</span></td>
-                                <td>{{ time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(token.expiry_timestamp)) }}</td>
-                                <td class="{{ 'status-expired' if is_expired else ('status-used' if is_used else 'status-paid') }}">
-                                    {% if is_expired %}Expired
-                                    {% elif is_used %}Used ({{ token.usage_count }}/{{ token.max_usage }})
-                                    {% else %}Valid
-                                    {% endif %}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        {% else %}
-                            <tr>
-                                <td colspan="4" style="text-align: center; color: #6c757d;">No access tokens have been issued yet.</td>
-                            </tr>
-                        {% endif %}
-                    </tbody>
-                </table>
-            </div>
+      <!-- Corrected: Recent Sensor Readings Table -->
+      <div class="card full-width">
+        <h3>Recent Sensor Readings</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Reading ID (Timestamp)</th>
+                <th>Sensor Values</th>
+                <th>On-Chain Proof TXID</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for reading in readings %}
+              <tr>
+                <td>{{ reading.reading_id }}</td>
+                <td>
+                  {% if reading.paid %}
+                  <!-- Use sensor_values which is already a tuple -->
+                  <strong style="color: #31a24c"
+                    >{{ reading.sensor_values[0] }} °C, {{
+                    reading.sensor_values[1] }} %</strong
+                  >
+                  {% else %}
+                  <span class="status-awaiting"
+                    >Data Locked - Payment Required</span
+                  >
+                  {% endif %}
+                </td>
+                <td>
+                  <a
+                    href="https://whatsonchain.com/tx/{{ reading.onchain_proof_txid }}"
+                    target="_blank"
+                    class="code"
+                    >{{ reading.onchain_proof_txid[:12] }}...{{
+                    reading.onchain_proof_txid[-4:] }}</a
+                  >
+                </td>
+                <td
+                  class="{{ 'status-paid' if reading.paid else 'status-awaiting' }}"
+                >
+                  {{ "Paid" if reading.paid else "Awaiting Payment" }}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </div>
+      </div>
 
-        <p id="refresh-info" class="full-width">This page will auto-refresh every {{ auto_refresh_interval }} seconds.</p>
-        
-        <div class="footer">
-            Sensōra MVP © {{ current_year }} 
+      <!-- Corrected: Issued Access Tokens Table -->
+      <div class="card full-width">
+        <h3>Issued Access Tokens (Last 10)</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>For Resource ID (Reading or Batch)</th>
+                <th>Access Token</th>
+                <th>Expires At (UTC)</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% if tokens and tokens|length > 0 %} {% for token in tokens %} {%
+              set is_expired = (time.time() | int) >= token.expiry_timestamp %}
+              {% set is_used = token.usage_count >= token.max_usage %}
+              <tr>
+                <!-- Smartly display the ID -->
+                <td title="{{ token.reading_id }}">
+                  <span class="code">
+                    {% if token.reading_id | length > 20 %} Batch: {{
+                    token.reading_id[:12] }}... {% else %} Reading: {{
+                    token.reading_id }} {% endif %}
+                  </span>
+                </td>
+                <td title="{{ token.access_token }}">
+                  <span class="code">{{ token.access_token[:12] }}...</span>
+                </td>
+                <td>
+                  {{ time.strftime('%Y-%m-%d %H:%M:%S',
+                  time.gmtime(token.expiry_timestamp)) }}
+                </td>
+                <td
+                  class="{{ 'status-expired' if is_expired else ('status-used' if is_used else 'status-paid') }}"
+                >
+                  {% if is_expired %}Expired {% elif is_used %}Used ({{
+                  token.usage_count }}/{{ token.max_usage }}) {% else %}Valid {%
+                  endif %}
+                </td>
+              </tr>
+              {% endfor %} {% else %}
+              <tr>
+                <td colspan="4" style="text-align: center; color: #6c757d">
+                  No access tokens have been issued yet.
+                </td>
+              </tr>
+              {% endif %}
+            </tbody>
+          </table>
         </div>
+      </div>
+
+      <!-- Footer (This is fine) -->
+      <p id="refresh-info" class="full-width">...</p>
+      <div class="footer">...</div>
     </div>
 
     <script>
-        // Pass chart data from Flask/Jinja2 to JavaScript
-        const chartData = JSON.parse('{{ chart_data | safe }}');
+      // Pass chart data from Flask/Jinja2 to JavaScript
+      const chartData = JSON.parse("{{ chart_data | safe }}");
 
-        // Check if there is data to display to avoid creating an empty chart
-        if (chartData.labels.length > 0) {
-            const ctx = document.getElementById('sensorChart').getContext('2d');
-            const sensorChart = new Chart(ctx, {
-                type: 'line',
-                data: {
-                    labels: chartData.labels,
-                    datasets: [{
-                        label: 'Temperature (°C)',
-                        data: chartData.temp_data,
-                        borderColor: 'rgb(255, 99, 132)',
-                        backgroundColor: 'rgba(255, 99, 132, 0.1)',
-                        yAxisID: 'y_temp',
-                        tension: 0.1
-                    }, {
-                        label: 'Humidity (%)',
-                        data: chartData.humid_data,
-                        borderColor: 'rgb(54, 162, 235)',
-                        backgroundColor: 'rgba(54, 162, 235, 0.1)',
-                        yAxisID: 'y_humid',
-                        tension: 0.1
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    interaction: {
-                        mode: 'index',
-                        intersect: false,
-                    },
-                    scales: {
-                        x: {
-                            display: true,
-                            title: { display: true, text: 'Time (HH:MM:SS)' }
-                        },
-                        y_temp: {
-                            type: 'linear',
-                            display: true,
-                            position: 'left',
-                            title: { display: true, text: 'Temperature (°C)' }
-                        },
-                        y_humid: {
-                            type: 'linear',
-                            display: true,
-                            position: 'right',
-                            title: { display: true, text: 'Humidity (%)' },
-                            grid: { drawOnChartArea: false } // only draw grid for first Y axis
-                        }
-                    }
-                }
-            });
-        }
+      // Check if there is data to display to avoid creating an empty chart
+      if (chartData.labels.length > 0) {
+        const ctx = document.getElementById("sensorChart").getContext("2d");
+        const sensorChart = new Chart(ctx, {
+          type: "line",
+          data: {
+            labels: chartData.labels,
+            datasets: [
+              {
+                label: "Temperature (°C)",
+                data: chartData.temp_data,
+                borderColor: "rgb(255, 99, 132)",
+                backgroundColor: "rgba(255, 99, 132, 0.1)",
+                yAxisID: "y_temp",
+                tension: 0.1,
+              },
+              {
+                label: "Humidity (%)",
+                data: chartData.humid_data,
+                borderColor: "rgb(54, 162, 235)",
+                backgroundColor: "rgba(54, 162, 235, 0.1)",
+                yAxisID: "y_humid",
+                tension: 0.1,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            interaction: {
+              mode: "index",
+              intersect: false,
+            },
+            scales: {
+              x: {
+                display: true,
+                title: { display: true, text: "Time (HH:MM:SS)" },
+              },
+              y_temp: {
+                type: "linear",
+                display: true,
+                position: "left",
+                title: { display: true, text: "Temperature (°C)" },
+              },
+              y_humid: {
+                type: "linear",
+                display: true,
+                position: "right",
+                title: { display: true, text: "Humidity (%)" },
+                grid: { drawOnChartArea: false }, // only draw grid for first Y axis
+              },
+            },
+          },
+        });
+      }
     </script>
-</body>
+  </body>
 </html>
