@@ -56,10 +56,5 @@ SENSORA_VERSION: int = 0x01
 SENSORA_DEVICE_ID_TYPE_IPV6_FULL: int = 0x01
 SENSORA_ADV_PREFIX: bytes = b'SENSORA_ADV'
 
-data_directory = os.getenv('SENSORA_DATA_DIR', project_root)
-
-# 3. Define the full, absolute path to the database file.
-DATABASE_NAME = os.path.join(data_directory, 'sensora_device.db')
-
 # --- DATABASE (Not user-configurable) ---
-#DATABASE_NAME = os.path.join(PROJECT_ROOT, "sensora_device.db")
+DATABASE_NAME = os.path.join(PROJECT_ROOT, "sensora_device.db")

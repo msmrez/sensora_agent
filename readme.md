@@ -67,7 +67,7 @@ Broadcast for every new sensor reading to provide an immutable proof of integrit
 
 | Field          | Size (Bytes) | Data Type               | Description                   |
 | :------------- | :----------- | :---------------------- | :---------------------------- |
-| Prefix         | **13**       | ASCII                   | `SENSORA_PROOF`               |
+| Prefix         | **13**        | ASCII                   | `SENSORA_PROOF`                     |
 | Version        | 1            | Unsigned Byte           | Protocol version (`0x01`)     |
 | Device ID Type | 1            | Unsigned Byte           | `0x01` for Full IPv6          |
 | Device ID      | 16           | Bytes                   | The sensor's IPv6 address     |
@@ -141,52 +141,3 @@ The agent serves a simple API for monetization:
 - **Hardware Integration:** Running the agent on low-cost hardware like a Raspberry Pi with real sensors.
 - **Advanced Encryption:** Offering optional end-to-end encryption for sensitive data.
 - **Batching/Merkle Proofs:** Reducing on-chain costs for high-frequency sensors.
-
-## Docker Quick Start (Recommended)
-
-This is the easiest and most reliable way to run the Sensōra Agent.
-
-### Prerequisites
-
-- [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/) installed on your system.
-- A public, static IPv6 address on your host machine.
-
-### Instructions
-
-1.  **Clone the Repository:**
-    Use SSH for the best experience.
-
-    ```bash
-    git clone git@github.com:msmrez/sensora_agent.git
-    cd sensora_agent
-    ```
-
-2.  **Create Your Configuration File:**
-    The agent is configured using a standard `config.ini` file. Copy the example to create your own.
-
-    ```bash
-    cp config.ini.example config.ini
-    ```
-
-3.  **Edit `config.ini`:**
-    Open the `config.ini` file in a text editor and fill in your details under the `[agent]` and `[api]` sections. This is the **only file you need to edit**.
-
-    - `wif`: Your funded BSV private key.
-    - `ipv6_address`: The public IPv6 address of the machine you are on.
-    - `port`: The public port for the agent's API (e.g., `8083`).
-    - `geohash`: (Optional) Your location's geohash.
-
-4.  **Run the Agent:**
-    Start the agent in detached (background) mode using Docker Compose.
-    ```bash
-    docker-compose up --build -d
-    ```
-    _(The `--build` flag is only needed the first time or when you change the code)._
-
-That's it! The agent is now running. Docker handles the Python environment, dependencies, and networking. Your configuration is safely managed in the `config.ini` file on your host machine.
-
-**To view the live logs:**
-
-```bash
-docker-compose logs -f
-```
