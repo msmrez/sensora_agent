@@ -25,3 +25,5 @@ EXPOSE 8083
 # The command that will be run when the container starts.
 # It expects the config.ini file to be available at /app/config.ini
 CMD ["python", "app.py"]
+
+
