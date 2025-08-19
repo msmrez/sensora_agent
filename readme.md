@@ -1,12 +1,12 @@
 # Sensōra Agent - An Autonomous IoT Data Provider
 
-This repository contains the complete source code for the **Sensōra Agent**, a Python application designed to run on IoT devices (like a Raspberry Pi or any Linux server). It empowers any connected sensor to become an autonomous economic agent on the BSV blockchain.
+This repository contains the complete source code for the **Sensōra Agent**, a Python application designed to run on any Linux-based server or IoT device (like a Raspberry Pi). It empowers any connected sensor or data source to become an autonomous economic agent on the BSV blockchain.
 
-The agent periodically captures sensor data, anchors a cryptographic proof of that data on-chain, and sells access to the raw data for BSV micropayments. It is a core component of the decentralized **Sensōra IoT Data Marketplace**.
+The agent periodically captures data, anchors a cryptographic proof of that data on-chain, and sells access to the raw data for BSV micropayments. It is a core component of the decentralized **Sensōra IoT Data Marketplace**.
 
 ### The Sensōra Ecosystem
 
-The Agent is the data-producing component in a larger P2P network.
+The Agent is the data-producing component in a larger P2P network. It works in conjunction with the [Sensōra Indexer & Registry](https://github.com/msmrez/sensora_indexer) and can be tested with the [Sensōra Client](https://github.com/msmrez/sensora_client).
 
 ```
 ┌─────────────────┐   1. Advertise Service   ┌────────────────┐   4. Discover Agent   ┌──────────────┐
@@ -22,45 +22,44 @@ The Agent is the data-producing component in a larger P2P network.
        └───────────────────────────────────[ Sensōra Indexer ]───────┘
 ```
 
-This agent works in conjunction with the [Sensōra Indexer & Registry](https://github.com/msmrez/sensora_indexer), which discovers and lists active sensors, and can be tested with the [Sensōra Client](https://github.com/msmrez/sensora_client).
-
 ## Core Features
 
 - **Autonomous Operation:** Runs as a background service, requiring no manual intervention.
-- **On-Chain Data Stamping:** Creates immutable, timestamped proofs of sensor data on the BSV blockchain using the `SENSORA_PROOF` protocol.
-- **On-Chain Service Advertisement:** Periodically broadcasts its services (data types, price, location) on-chain using the `SENSORA_ADV1` protocol.
-- **Direct Monetization:** Sells data directly to consumers for BSV micropayments via a built-in API.
+- **On-Chain Data Stamping:** Creates immutable, timestamped proofs of data integrity on the BSV blockchain using the `SENSORA_PROOF` protocol.
+- **Rich On-Chain Advertisement:** Broadcasts its services with human-readable names, descriptions, and units using the flexible `SENSORA_ADV` protocol.
+- **Direct Monetization:** Sells both single data points and historical batches for BSV micropayments via a built-in API.
 - **Secure Data Access:** Implements a token-based access system to ensure only verified payers can retrieve data.
 - **Persistent State:** Uses a local SQLite database (`sensora_device.db`) to track all readings, payments, and access tokens, ensuring resilience against restarts.
+- **Easy Deployment:** Can be run directly from source or as a simple Docker container.
 
 ## On-Chain Data Protocols
 
 The agent **creates** two distinct `OP_RETURN` protocols on the BSV blockchain.
 
-### 1. Advertisement Protocol (`SENSORA_ADV1`)
+### 1. Advertisement Protocol (`SENSORA_ADV`)
 
-Broadcast periodically to announce the sensor's services to the network.
+Broadcast periodically to announce the sensor's services. This version uses a flexible JSON payload to describe services.
 
-- **Prefix:** `SENSORA_ADV1` (ASCII)
-- **Payload Structure:**
+- **Prefix:** `SENSORA_ADV` (ASCII)
+- **Payload Structure:** `[Prefix (11B)][DevIDType (1B)][DevID (16B)][Port (2B)][GeoLen (1B)][Geohash (Var)][ServicesJSON (Var)][Timestamp (8B)]`
 
-| Field           | Size (Bytes) | Data Type               | Description                         |
-| :-------------- | :----------- | :---------------------- | :---------------------------------- |
-| Prefix          | **12**       | ASCII                   | `SENSORA_ADV1`                      |
-| Device ID Type  | 1            | Unsigned Byte           | `0x01` for Full IPv6                |
-| Device ID       | 16           | Bytes                   | The sensor's IPv6 address           |
-| Port            | 2            | Unsigned Short (BE)     | API listener port                   |
-| Geohash Length  | 1            | Unsigned Byte           | Length of the Geohash string        |
-| Geohash         | (variable)   | ASCII                   | Sensor's location                   |
-| # of Services   | 1            | Unsigned Byte           | Number of data types offered        |
-| Service 1 Type  | 2            | Unsigned Short (BE)     | Code for the service                |
-| Service 1 Price | 4            | Unsigned Int (BE)       | Price in satoshis                   |
-| ...             | ...          | ...                     | _(Repeat for more services)_        |
-| Timestamp       | 8            | Unsigned Long Long (BE) | Unix timestamp of the advertisement |
+The `ServicesJSON` is a UTF-8 encoded JSON string representing a list of service objects, for example:
 
-### 2. Data Stamp Protocol (`SENSORA_PROOF`)
+```json
+[
+  {
+    "type": 1,
+    "name": "Temperature/Humidity",
+    "desc": "Measures ambient temperature and relative humidity.",
+    "units": ["°C", "%RH"],
+    "price": 50
+  }
+]
+```
 
-Broadcast for every new sensor reading to provide an immutable proof of integrity.
+### 2. Data Proof Protocol (`SENSORA_PROOF`)
+
+Broadcast for every new data point to provide an immutable proof of integrity.
 
 - **Prefix:** `SENSORA_PROOF` (ASCII)
 - **Payload Structure:**
@@ -70,91 +69,25 @@ Broadcast for every new sensor reading to provide an immutable proof of integrit
 | Prefix         | **13**       | ASCII                   | `SENSORA_PROOF`               |
 | Version        | 1            | Unsigned Byte           | Protocol version (`0x01`)     |
 | Device ID Type | 1            | Unsigned Byte           | `0x01` for Full IPv6          |
-| Device ID      | 16           | Bytes                   | The sensor's IPv6 address     |
+| Device ID      | 16           | Bytes                   | The agent's IPv6 address      |
 | Reading ID     | 8            | Unsigned Long Long (BE) | Unix timestamp of the reading |
 | Data Type      | 2            | Unsigned Short (BE)     | Code for this reading's type  |
 | Data Hash      | 32           | Bytes                   | SHA-256 hash of the data      |
 
 ## Getting Started
 
-### Prerequisites
+We recommend running the agent using Docker for the easiest and most reliable setup. Instructions for running from source are also provided.
 
-- A Linux-based device (e.g., Raspberry Pi, cloud VM) with Python 3.10+.
-- A globally routable IPv6 address for the device.
-- A funded BSV wallet.
+### Docker Quick Start (Recommended)
 
-### Installation & Configuration
-
-1.  **Clone the Repository:**
-
-    ```bash
-    git clone https://github.com/msmrez/sensora_agent.git
-    cd sensora_agent
-    ```
-
-2.  **Set up Virtual Environment:**
-
-    ```bash
-    python3 -m venv venv
-    source venv/bin/activate
-    ```
-
-3.  **Install Dependencies:**
-
-    ```bash
-    pip install -r requirements.txt
-    # Note: If requirements.txt doesn't exist, create it after installing
-    # dependencies manually (pip install Flask requests bsvlib)
-    # using the command: pip freeze > requirements.txt
-    ```
-
-4.  **Configure the Agent:**
-    - Copy the example configuration file: `cp config.ini.example config.ini`
-    - **Edit `config.ini`** with your details:
-      - `ipv6_address`: The public IPv6 address of your device.
-      - `port`: The port for the API server (e.g., `8080`).
-      - `wif`: The BSV Wallet Import Format (WIF) private key. **This wallet must be funded** with BSV to pay for transaction fees.
-      - `geohash`: An optional geohash string for your sensor's location.
-
-### Running the Agent
-
-With your virtual environment activated, run the main application from the project root directory. The application is typically named `app.py` or `sensor_agent.py`.
-
-```bash
-# Example:
-python app.py
-```
-
-The agent will initialize its database, start its background threads for stamping and advertising, and launch the Flask web server. You can monitor its activity via the console logs and access its dashboard in a web browser at `http://[YOUR_DEVICE_IPV6]:YOUR_PORT/`.
-
-## API Endpoints
-
-The agent serves a simple API for monetization:
-
-- `GET /`: A web dashboard showing sensor status.
-- `GET /price`: Provides payment information for the latest data reading.
-- `POST /claim_reading/<reading_id>`: Allows a consumer to claim data after making a payment. Requires a JSON body: `{"payment_txid": "..."}`.
-- `GET /fetch_data/<reading_id>?token=...`: Serves the raw data if a valid access token is provided.
-
-## Future Work
-
-- **Hardware Integration:** Running the agent on low-cost hardware like a Raspberry Pi with real sensors.
-- **Advanced Encryption:** Offering optional end-to-end encryption for sensitive data.
-- **Batching/Merkle Proofs:** Reducing on-chain costs for high-frequency sensors.
-
-## Docker Quick Start (Recommended)
-
-This is the easiest and most reliable way to run the Sensōra Agent.
-
-### Prerequisites
+#### Prerequisites
 
 - [Docker](https://docs.docker.com/get-docker/) and [Docker Compose](https://docs.docker.com/compose/install/) installed on your system.
 - A public, static IPv6 address on your host machine.
 
-### Instructions
+#### Instructions
 
 1.  **Clone the Repository:**
-    Use SSH for the best experience.
 
     ```bash
     git clone git@github.com:msmrez/sensora_agent.git
@@ -169,24 +102,61 @@ This is the easiest and most reliable way to run the Sensōra Agent.
     ```
 
 3.  **Edit `config.ini`:**
-    Open the `config.ini` file in a text editor and fill in your details under the `[agent]` and `[api]` sections. This is the **only file you need to edit**.
+    Open the `config.ini` file in a text editor and fill in your details. This is the **only file you need to edit**.
 
     - `wif`: Your funded BSV private key.
     - `ipv6_address`: The public IPv6 address of the machine you are on.
     - `port`: The public port for the agent's API (e.g., `8083`).
     - `geohash`: (Optional) Your location's geohash.
+    - Configure your desired service(s) under the `[service.*]` sections.
 
 4.  **Run the Agent:**
     Start the agent in detached (background) mode using Docker Compose.
     ```bash
-    docker-compose up --build -d
+    docker compose up --build -d
     ```
     _(The `--build` flag is only needed the first time or when you change the code)._
 
-That's it! The agent is now running. Docker handles the Python environment, dependencies, and networking. Your configuration is safely managed in the `config.ini` file on your host machine.
+The agent is now running. To view live logs, use `docker compose logs -f`. To stop it, use `docker compose down`.
 
-**To view the live logs:**
+---
 
-```bash
-docker-compose logs -f
-```
+### Running from Source (for Development)
+
+1.  **Clone and Set Up Environment:**
+
+    ```bash
+    git clone git@github.com:msmrez/sensora_agent.git
+    cd sensora_agent
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install -r requirements.txt
+    ```
+
+2.  **Configure:**
+    Copy and edit `config.ini` as described in the Docker instructions.
+
+3.  **Run:**
+    ```bash
+    python app.py
+    ```
+    The agent will start, and you can access its dashboard at `http://localhost:YOUR_PORT`.
+
+## API Endpoints
+
+The agent serves an API for direct data monetization.
+
+#### Single Readings
+
+- `GET /`: Web dashboard showing agent status, recent readings, and tokens.
+- `GET /price`: Provides payment info for the latest single reading.
+- `POST /claim_reading/<reading_id>`: Claims a single reading after payment.
+- `GET /fetch_data/<reading_id>?token=...`: Fetches the raw data for a single reading.
+
+#### Batch Purchases
+
+- `POST /batch/price`: Gets a price quote for a historical batch of data.
+  - **Body:** `{"start_timestamp": 1678880000, "end_timestamp": 1678886400}`
+- `POST /batch/claim`: Claims an entire batch after payment.
+  - **Body:** `{"batch_id": "...", "payment_txid": "..."}`
+- `GET /batch/fetch/<batch_id>?token=...`: Fetches the complete JSON array of readings for the batch.
