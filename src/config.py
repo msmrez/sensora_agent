@@ -5,7 +5,7 @@ import configparser
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 config_file_path = os.path.join(project_root, 'config.ini')
 
-# THIS OBJECT IS NAMED 'cfg'
+# The parser object is named 'cfg' and is available for other modules to import.
 cfg = configparser.ConfigParser()
 cfg.read(config_file_path)
 
