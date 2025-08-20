@@ -1,38 +1,71 @@
-[Device]
-# The globally routable IPv6 address of this sensor agent.
-ipv6_address = 2a01:4f8:1c1b:83c3::1
-port = 8080
+# ===================================================================
+#         Sensōra Agent Configuration File
+# ===================================================================
 
+[Device]
 # The Wallet Import Format (WIF) private key for this device.
 # This wallet needs to be funded with a small amount of BSV for transaction fees.
-# WARNING: Do not commit your actual WIF to public repositories.
-wif = KyuXbx.............
+wif = Your_WIF_private_key_goes_here
+
+# The globally routable IPv6 address that this agent will advertise to the network.
+ipv6_address = ::1
+
+# The port for the agent's API server. Ensure this port is open in your firewall.
+port = 8083
+
+# The host network interface the Flask server will bind to.
+# Use 'localhost' when running behind a proxy like Nginx.
+# Use '::' to listen on all interfaces for direct public access.
+host = ::
+
 
 [Location]
 # Optional: A Geohash string representing the sensor's location (max 12 chars).
-# Can be generated at https://www.movable-type.co.uk/scripts/geohash.html
 geohash = u4pruydq
 
-[Service]
-# The price in satoshis for a single data reading.
-price_sats = 5
 
-# How often the sensor captures and stamps data, in seconds.
+[Service]
+# The price in satoshis for a single data reading. This is used for the single-purchase flow.
+price_sats = 50
+
+# Specifies which data source the agent should use. This determines the agent's primary function.
+# Valid options: "temp_humid", "cpu_metrics", "memory_usage"
+active_sensor_type = temp_humid
+
+
+[Timing]
+# How often the sensor captures data and stamps a proof on-chain, in seconds.
 data_capture_interval_seconds = 300
 
-# How often the sensor broadcasts its advertisement on-chain, in seconds.
-advertisement_interval_seconds = 43200 ; 12 hours
+# How often the sensor broadcasts its service advertisement on-chain, in seconds (e.g., 12 hours).
+advertisement_interval_seconds = 43200
 
-# The fee rate for BSV transactions in satoshis per byte.
-bsv_fee_rate_sats_per_byte = 0.02
+
+[BSV]
+# The fee rate for creating BSV transactions, in satoshis per byte.
+bsv_fee_rate_sats_per_byte = 0.01
+
 
 [Token]
-# How long a data access token is valid, in seconds.
+# How long a data access token is valid after being issued, in seconds.
 expiry_seconds = 3600
 # How many times a token can be used to download data.
 max_usage = 3
+
+
 [batch]
+# The maximum number of readings a client can request in a single batch purchase.
 max_batch_size = 1000
+
+
+# ===================================================================
+#         DETAILED SERVICE DEFINITIONS FOR ADVERTISEMENT
+# ===================================================================
+# Define the services this agent can offer. These are used to build the rich advertisement.
+# To make a service active, you must:
+#  1. Set 'enabled = true' in its section below.
+#  2. Set the 'active_sensor_type' in the [Service] section above to match.
+# ===================================================================
 
 [service.temp_humid]
 enabled = true
@@ -40,21 +73,20 @@ data_type_code = 1
 name = Temperature/Humidity
 description = Measures ambient temperature and relative humidity.
 units = °C, %RH
-price_sats = 50
-
+price_sats = 20
 
 [service.cpu_metrics]
 enabled = false
 data_type_code = 10
-name = "CPU Metrics"
-description = "Reports server CPU temperature and average load."
-units = "°C, % Load"
+name = CPU Metrics
+description = Reports server CPU temperature and average load.
+units = °C, % Load
 price_sats = 25
 
 [service.memory_usage]
 enabled = false
 data_type_code = 11
-name = "Memory Usage"
-description = "Reports the system's current RAM and Swap memory usage."
-units = "%, %"
+name = Memory Usage
+description = Reports the system's current RAM and Swap memory usage.
+units = %, %
 price_sats = 15

@@ -1,98 +1,68 @@
 # sensora_agent/src/config.py
 
-import configparser
 import os
-import sys
-import logging
-parser = configparser.ConfigParser()
+import configparser
 
-logger = logging.getLogger(__name__)
+# --- 1. Define Project Root and Read the Config File ---
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+config_file_path = os.path.join(project_root, 'config.ini')
 
-# --- CONFIGURATION LOADING ---
+cfg = configparser.ConfigParser()
+cfg.read(config_file_path)
 
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CONFIG_FILE_PATH = os.path.join(PROJECT_ROOT, 'config.ini')
-# Read the config.ini file
-parser.read(CONFIG_FILE_PATH)
-if not os.path.exists(CONFIG_FILE_PATH):
-    logger.critical(f"CRITICAL: Configuration file not found at {CONFIG_FILE_PATH}.")
-    logger.critical("Please copy 'config.ini.example' to 'config.ini' and fill in your details.")
-    sys.exit(1)
-
-
-# --- Expose Settings ---
-try:
-    # [Device]
-    DEVICE_IPV6_ADDRESS = parser.get('Device', 'ipv6_address')
-    DEVICE_PORT = parser.getint('Device', 'port')
-    WIF = parser.get('Device', 'wif')
-
-    # [Location]
-    DEVICE_GEOHASH = parser.get('Location', 'geohash', fallback=None)
-
-    # [Service]
-    PRICE_SATS_PER_READING = parser.getint('Service', 'price_sats')
-    DATA_CAPTURE_INTERVAL_SECONDS = parser.getint('Service', 'data_capture_interval_seconds')
-    ADVERTISEMENT_INTERVAL_SECONDS = parser.getint('Service', 'advertisement_interval_seconds')
-    BSV_FEE_SATOSHIS_PER_BYTE = parser.getfloat('Service', 'bsv_fee_rate_sats_per_byte')
-
-    # [Token]
-    TOKEN_EXPIRY_SECONDS = parser.getint('Token', 'expiry_seconds')
-    TOKEN_MAX_USAGE = parser.getint('Token', 'max_usage')
-
-except (configparser.NoSectionError, configparser.NoOptionError) as e:
-    logger.critical(f"CRITICAL: Missing required setting in 'config.ini'. Error: {e}")
-    sys.exit(1)
-
-
-# --- API ENDPOINTS (Not user-configurable, but defined here for consistency) ---
-BITAILS_API_BASE_URL = "https://api.bitails.io"
-BATCH_MAX_SIZE = 1000
-
-# --- PROTOCOL CONSTANTS (These are not user-configurable) ---
-DATA_TYPE_TEMP_HUMID: int = 0x0001
-SENSORA_PREFIX: bytes = b'SENSORA_PROOF'
-SENSORA_VERSION: int = 0x01
-SENSORA_DEVICE_ID_TYPE_IPV6_FULL: int = 0x01
-SENSORA_ADV_PREFIX: bytes = b'SENSORA_ADV'
-
-data_directory = os.getenv('SENSORA_DATA_DIR', PROJECT_ROOT)
-
-# 3. Define the full, absolute path to the database file.
+# --- 2. Define the Data Directory (Handles Docker vs. Local) ---
+data_directory = os.getenv('SENSORA_DATA_DIR', project_root)
 DATABASE_NAME = os.path.join(data_directory, 'sensora_device.db')
 
-# --- DATABASE (Not user-configurable) ---
-#DATABASE_NAME = os.path.join(PROJECT_ROOT, "sensora_device.db")
+# --- 3. LOAD ALL CONFIGURATIONS FROM 'cfg' USING CORRECT SECTIONS ---
 
+# [Device] Section
+try:
+    DEVICE_WIF = cfg.get('Device', 'wif')
+    DEVICE_IPV6_ADDRESS = cfg.get('Device', 'ipv6_address')
+    DEVICE_PORT = cfg.getint('Device', 'port')
+    API_HOST = cfg.get('Device', 'host')
+except configparser.NoSectionError as e:
+    print(f"CRITICAL: Missing required section [Device] in 'config.ini'.")
+    raise e
+
+# [Location] Section
+DEVICE_GEOHASH = cfg.get('Location', 'geohash', fallback=None)
+
+# [Service] Section
+try:
+    PRICE_SATS_PER_READING = cfg.getint('Service', 'price_sats')
+    ACTIVE_SENSOR_TYPE = cfg.get('Service', 'active_sensor_type')
+except configparser.NoSectionError as e:
+    print(f"CRITICAL: Missing required section [Service] in 'config.ini'.")
+    raise e
+
+# [Timing] Section
+DATA_CAPTURE_INTERVAL_SECONDS = cfg.getint('Timing', 'data_capture_interval_seconds', fallback=300)
+ADVERTISEMENT_INTERVAL_SECONDS = cfg.getint('Timing', 'advertisement_interval_seconds', fallback=43200)
+
+# [BSV] Section
+BSV_FEE_RATE_SATS_PER_BYTE = cfg.getfloat('BSV', 'bsv_fee_rate_sats_per_byte', fallback=0.01)
+
+# [Token] Section
+TOKEN_EXPIRY_SECONDS = cfg.getint('Token', 'expiry_seconds', fallback=3600)
+TOKEN_MAX_USAGE = cfg.getint('Token', 'max_usage', fallback=3)
+
+# [batch] Section
+BATCH_MAX_SIZE = cfg.getint('batch', 'max_batch_size', fallback=1000)
+
+
+# --- 4. PROTOCOL CONSTANTS & DATA TYPE REGISTRY ---
+SENSORA_PROOF_PREFIX = b'SENSORA_PROOF'
+SENSORA_ADV_PREFIX = b'SENSORA_ADV'
+SENSORA_DEVICE_ID_TYPE_IPV6_FULL = 0x01
 
 DATA_TYPES = {
-    1: {
-        "name": "Temperature/Humidity",
-        "description": "Measures ambient temperature and relative humidity.",
-        "value_schema": [
-            { "name": "temperature", "unit": "°C", "type": "float" },
-            { "name": "humidity", "unit": "%RH", "type": "float" }
-        ]
-    },
-    10: {
-        "name": "CPU Metrics",
-        "description": "Reports CPU temperature and average 1-minute load.",
-        "value_schema": [
-            { "name": "cpu_temp", "unit": "°C", "type": "float" },
-            { "name": "cpu_load", "unit": "%", "type": "float" }
-        ]
-    },
-    11: {
-        "name": "Memory Usage",
-        "description": "Reports the system's current RAM and Swap memory usage.",
-        "value_schema": [
-            { "name": "ram_usage", "unit": "%", "type": "float" },
-            { "name": "swap_usage", "unit": "%", "type": "float" }
-        ]
-    }
+    1: {"name": "Temperature/Humidity"},
+    10: {"name": "CPU Metrics"},
+    11: {"name": "Memory Usage"}
 }
 
-# For backward compatibility and easy access, we can still define these:
 DATA_TYPE_TEMP_HUMID = 1
 DATA_TYPE_CPU_METRICS = 10
 DATA_TYPE_MEMORY_USAGE = 11
