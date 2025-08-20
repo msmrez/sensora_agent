@@ -17,7 +17,7 @@ def format_float_for_hash(value: float, precision: int = 1) -> str:
 
 # --- Payload Creators ---
 
-def create_sensora_op_return_payload(reading_timestamp_int: int, data_type_code: int, sensor_values_tuple: tuple) -> bytes:
+def create_sensora_proof_payload(reading_timestamp_int: int, data_type_code: int, sensor_values_tuple: tuple) -> bytes:
     """Creates the 'SENSORA_PROOF' data stamping OP_RETURN payload."""
     device_id_bytes = get_device_id_bytes(config.DEVICE_IPV6_ADDRESS)
     formatted_values = [format_float_for_hash(v) for v in sensor_values_tuple]
