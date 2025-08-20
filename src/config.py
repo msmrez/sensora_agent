@@ -63,3 +63,36 @@ DATABASE_NAME = os.path.join(data_directory, 'sensora_device.db')
 
 # --- DATABASE (Not user-configurable) ---
 #DATABASE_NAME = os.path.join(PROJECT_ROOT, "sensora_device.db")
+
+
+DATA_TYPES = {
+    1: {
+        "name": "Temperature/Humidity",
+        "description": "Measures ambient temperature and relative humidity.",
+        "value_schema": [
+            { "name": "temperature", "unit": "°C", "type": "float" },
+            { "name": "humidity", "unit": "%RH", "type": "float" }
+        ]
+    },
+    10: {
+        "name": "CPU Metrics",
+        "description": "Reports CPU temperature and average 1-minute load.",
+        "value_schema": [
+            { "name": "cpu_temp", "unit": "°C", "type": "float" },
+            { "name": "cpu_load", "unit": "%", "type": "float" }
+        ]
+    },
+    11: {
+        "name": "Memory Usage",
+        "description": "Reports the system's current RAM and Swap memory usage.",
+        "value_schema": [
+            { "name": "ram_usage", "unit": "%", "type": "float" },
+            { "name": "swap_usage", "unit": "%", "type": "float" }
+        ]
+    }
+}
+
+# For backward compatibility and easy access, we can still define these:
+DATA_TYPE_TEMP_HUMID = 1
+DATA_TYPE_CPU_METRICS = 10
+DATA_TYPE_MEMORY_USAGE = 11

@@ -41,3 +41,20 @@ name = Temperature/Humidity
 description = Measures ambient temperature and relative humidity.
 units = °C, %RH
 price_sats = 50
+
+
+[service.cpu_metrics]
+enabled = false
+data_type_code = 10
+name = "CPU Metrics"
+description = "Reports server CPU temperature and average load."
+units = "°C, % Load"
+price_sats = 25
+
+[service.memory_usage]
+enabled = false
+data_type_code = 11
+name = "Memory Usage"
+description = "Reports the system's current RAM and Swap memory usage."
+units = "%, %"
+price_sats = 15

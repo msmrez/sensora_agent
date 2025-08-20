@@ -20,7 +20,7 @@ COPY app.py .
 COPY templates/ ./templates/
 
 # Expose the port the agent will listen on internally
-EXPOSE 8083
+EXPOSE 8086
 
 # The command that will be run when the container starts.
 # It expects the config.ini file to be available at /app/config.ini

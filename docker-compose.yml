@@ -1,25 +1,18 @@
-# Note: The 'version' tag has been completely removed. This is the modern syntax.
 services:
-  # The service is named 'agent' locally within this file.
   agent:
     build: .
-    # The container name will now be automatically generated based on the directory name,
-    # for example: "sensora_agent2-docker-agent-1". This avoids all conflicts.
     restart: unless-stopped
 
-    # Use the host's network for simple and reliable IPv6.
-    network_mode: "host"
+    # Map port 8086 on the host's localhost to port 8086 inside the container.
+    ports:
+      - "127.0.0.1:8086:8086"
 
-    # Mount the config file as read-only.
     volumes:
       - ./config.ini:/app/config.ini:ro
-      # Use a named volume for the persistent database.
       - agent_data:/app/data
 
-    # Set the environment variable for the database path inside the container.
     environment:
       - SENSORA_DATA_DIR=/app/data
 
-# Define the named volume.
 volumes:
   agent_data:
