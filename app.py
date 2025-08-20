@@ -127,7 +127,7 @@ def data_capture_and_stamp_loop():
                     database.increment_key_value('successful_stamp_count')
                     database.set_key_value('last_stamp_timestamp', str(int(time.time())))
                     logger.info(f"Successfully stamped reading {reading_ts} on-chain. TXID: {onchain_txid}")
-                    database.save_reading(reading_ts, value_tuple, data_type, onchain_txid)
+                    database.save_reading(reading_ts, reading_ts, value_tuple, data_type, op_return_payload.hex(), onchain_txid)
                 else:
                     database.increment_key_value('failed_stamp_count')
                     logger.error(f"Failed to stamp reading {reading_ts} on-chain. Will retry next cycle.")
