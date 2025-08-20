@@ -89,7 +89,6 @@ def data_capture_and_stamp_loop():
     if not (device_state.private_key and device_state.public_key):
         logger.critical("Device keys not loaded. Stamper thread cannot operate."); return 
 
-    # --- The Dynamic Dispatcher ---
     DATA_GATHERING_FUNCTIONS = {
         "temp_humid": get_simulated_sensor_data,
         "cpu_metrics": get_cpu_metrics_data,
@@ -113,7 +112,6 @@ def data_capture_and_stamp_loop():
             else:
                 logger.info(f"Captured data: {value_tuple}, type: {data_type_code_to_name(data_type)}")
                 
-                # The generic proof payload creation now takes the tuple directly.
                 op_return_payload = protocols.create_sensora_proof_payload(reading_ts, data_type, value_tuple)
                 
                 logger.info(f"Attempting to stamp reading {reading_ts} on-chain...")
@@ -129,7 +127,6 @@ def data_capture_and_stamp_loop():
                     database.increment_key_value('successful_stamp_count')
                     database.set_key_value('last_stamp_timestamp', str(int(time.time())))
                     logger.info(f"Successfully stamped reading {reading_ts} on-chain. TXID: {onchain_txid}")
-                    # Ensure save_reading can handle a tuple of values
                     database.save_reading(reading_ts, value_tuple, data_type, onchain_txid)
                 else:
                     database.increment_key_value('failed_stamp_count')
@@ -140,27 +137,30 @@ def data_capture_and_stamp_loop():
             logger.exception(f"CRITICAL ERROR in data_capture_and_stamp_loop: {e}")
             time.sleep(60)
         
-        scan_interval = config.cfg.getint('agent', 'scan_interval_seconds', fallback=300)
+        scan_interval = config.cfg.getint('timing', 'scan_interval_seconds', fallback=300)
         logger.info(f"Stamper thread sleeping for {scan_interval} seconds...")
         time.sleep(scan_interval)
 
 
 def broadcast_advertisement_tx() -> bool:
-    # This function is correct and does not need to change.
-    # It correctly calls the rich advertisement payload creator.
-    if not (device_state.private_key and device_state.public_key):
-        logger.error("[ADV_TX] Keys not loaded. Cannot broadcast."); return False
+    if not (device_state.private_key and device_state.public_key and device_state.locking_script_hex):
+        logger.error("[ADV_TX] Keys not loaded. Cannot broadcast advertisement.")
+        return False
 
     logger.info("[ADV_TX] Creating advertisement payload...")
     adv_op_return_payload = protocols.create_advertisement_op_return_payload()
     if not adv_op_return_payload:
-        logger.error("[ADV_TX] Failed to create advertisement payload.");
-        database.increment_key_value('failed_adv_count'); return False
+        logger.error("[ADV_TX] Failed to create advertisement payload.")
+        database.increment_key_value('failed_adv_count')
+        return False
     
     logger.info(f"[ADV_TX] Attempting to broadcast advertisement transaction...")
     txid = bsv_utils.create_and_broadcast_op_return_tx(
-        bsv_tx_lock, device_state.private_key, device_state.public_key, 
-        device_state.locking_script_hex, adv_op_return_payload
+        bsv_tx_lock,
+        device_state.private_key, 
+        device_state.public_key, 
+        device_state.locking_script_hex, 
+        adv_op_return_payload
     )
 
     if txid:
@@ -170,23 +170,43 @@ def broadcast_advertisement_tx() -> bool:
         database.increment_key_value('successful_adv_count')
         return True
     else:
-        logger.error("[ADV_TX] Failed to broadcast advertisement transaction.");
-        database.increment_key_value('failed_adv_count'); return False
+        logger.error("[ADV_TX] Failed to broadcast advertisement transaction.")
+        database.increment_key_value('failed_adv_count')
+        return False
 
 def advertisement_loop():
-    # This function is also fine and does not need to change.
-    # ... (same as your existing code)
-
+    adv_interval = config.cfg.getint('timing', 'advertisement_interval_seconds', fallback=43200)
+    logger.info(f"Advertisement loop starting... will broadcast after the first interval of {adv_interval / 3600:.1f} hours.")
+    time.sleep(adv_interval)
+    
+    while True:
+        try:
+            broadcast_advertisement_tx()
+        except Exception as e:
+            logger.exception(f"CRITICAL ERROR in advertisement_loop: {e}")
+        
+        logger.info(f"[ADV_LOOP] Next advertisement in {adv_interval / 3600:.1f} hours.")
+        time.sleep(adv_interval)
 
 # --- Application Factory and Main Execution ---
 def create_app():
     """Initializes and returns the configured Flask application."""
     logger.info("--- Initializing Sensōra Device Agent ---")
+    
     database.init_db() 
     
-    # ... (key and address loading logic is the same) ...
-    # It's important that config.py is correctly set up to parse the .ini file
+    logger.info(f"Loading WIF: {config.DEVICE_WIF[:5]}...")
+    device_state.private_key = bsv_utils.get_bsv_private_key_object(config.DEVICE_WIF)
+    if not device_state.private_key:
+        logger.critical("Could not load private key. Exiting."); sys.exit(1)
+
+    device_state.public_key = bsv_utils.get_bsv_public_key_object(device_state.private_key)
+    addr, script_hex = bsv_utils.get_address_and_locking_script(device_state.public_key)
+    device_state.address = addr
+    device_state.locking_script_hex = script_hex
     
+    logger.info(f"Device Initialized. Payment Address: {device_state.address}")
+
     routes.register_all_routes(app, device_state)
     
     logger.info("Broadcasting initial sensor advertisement...")
@@ -194,7 +214,6 @@ def create_app():
         logger.warning("Initial advertisement broadcast FAILED. Check logs and funding.")
 
     logger.info("Starting background threads...")
-    # Update the thread target to the new, dynamic loop function
     stamper_thread = threading.Thread(target=data_capture_and_stamp_loop, name="StamperThread", daemon=True)
     stamper_thread.start()
     
@@ -205,11 +224,10 @@ def create_app():
 
 if __name__ == "__main__":
     application = create_app()
-    logger.info(f"Starting Flask API server (listening on localhost:{config.DEVICE_PORT} for Docker proxy)")
+    
+    listen_host = config.cfg.get('api', 'host', fallback='::')
+    logger.info(f"Starting Flask API server (listening on {listen_host}:{config.DEVICE_PORT})")
     try:
-        # For Docker, we listen on 0.0.0.0. For local dev, localhost or :: is fine.
-        # Let's make it configurable.
-        listen_host = config.cfg.get('api', 'host', fallback='::')
         application.run(host=listen_host, port=config.DEVICE_PORT, debug=False)
     except Exception as e:
         logger.exception(f"Flask server failed to start or crashed: {e}")
