@@ -33,7 +33,7 @@ try:
     ADVERTISEMENT_INTERVAL_SECONDS = cfg.getint('Timing', 'advertisement_interval_seconds')
 
     # [BSV] Section
-    BSV_FEE_RATE_SATS_PER_BYTE = cfg.getfloat('BSV', 'bsv_fee_rate_sats_per_byte')
+    BSV_FEE_SATOSHIS_PER_BYTE = cfg.getfloat('BSV', 'bsv_fee_rate_sats_per_byte')
 
     # [Token] Section
     TOKEN_EXPIRY_SECONDS = cfg.getint('Token', 'expiry_seconds')
