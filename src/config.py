@@ -34,6 +34,7 @@ try:
 
     # [BSV] Section
     BSV_FEE_SATOSHIS_PER_BYTE = cfg.getfloat('BSV', 'bsv_fee_rate_sats_per_byte')
+    # --- END OF CORRECTION ---
 
     # [Token] Section
     TOKEN_EXPIRY_SECONDS = cfg.getint('Token', 'expiry_seconds')
@@ -46,6 +47,11 @@ except (configparser.NoSectionError, configparser.NoOptionError) as e:
     exit(1)
 
 # --- 4. PROTOCOL CONSTANTS & DATA TYPE REGISTRY ---
+
+# --- API ENDPOINTS (Not user-configurable, but defined here for consistency) ---
+BITAILS_API_BASE_URL = "https://api.bitails.io"
+BATCH_MAX_SIZE = 1000
+
 SENSORA_PROOF_PREFIX = b'SENSORA_PROOF'
 SENSORA_ADV_PREFIX = b'SENSORA_ADV'
 SENSORA_DEVICE_ID_TYPE_IPV6_FULL = 0x01
