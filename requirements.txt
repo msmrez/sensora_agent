@@ -2,3 +2,5 @@ flask
 requests
 bsvlib
 python-dotenv
+psutil
+flasgger

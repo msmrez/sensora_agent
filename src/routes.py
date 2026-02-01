@@ -1,4 +1,4 @@
-# sensor_agent/src/routes.py
+# sensora_agent/src/routes.py
 
 import time
 import json
@@ -10,16 +10,15 @@ import hashlib
 from . import config, database, bsv_utils, reputation
 
 logger = logging.getLogger(__name__)
-logger.info("routes.py module is being loaded by Python...")
+
+
 class PaymentRequiredError(HTTPException):
     code = 402
     description = 'Payment for this resource has not been detected.'
 
 def register_all_routes(app, device_state):
     """Registers all Flask error handlers and routes with the application."""
-    logger.info("register_all_routes() function is being CALLED.") # Also add this one
-
-    # --- Error Handlers (Defined inside the registration function) ---
+    # Error handlers
     @app.errorhandler(PaymentRequiredError)
     def handle_payment_required(error):
         return jsonify({"error": "Payment Required", "message": error.description}), 402
@@ -34,51 +33,25 @@ def register_all_routes(app, device_state):
         return jsonify({"error": "Internal Server Error"}), 500
 
 
-    # In sensora_agent/src/routes.py
-
     @app.route("/")
     def dashboard():
-        logger.info("--- ENTERED DASHBOARD ROUTE ---")
-        
-        # We will build the context dictionary step-by-step
         context = {}
-
         try:
-            # Fetch data and log immediately
             context['readings'] = database.get_latest_readings()
-            logger.info(f"Dashboard fetched {len(context['readings'])} readings.")
-
             context['tokens'] = database.get_latest_tokens()
-            logger.info(f"Dashboard fetched {len(context['tokens'])} tokens.")
 
-            # --- THIS IS THE CRITICAL TEST ---
-            # Call the function and immediately log the result
             context['batches'] = database.get_latest_claimed_batches(limit=10)
-            logger.info(f"!!! Dashboard call to get_latest_claimed_batches returned: {context['batches']} !!!")
-            # --- END CRITICAL TEST ---
-
             context['last_adv_txid'] = database.get_key_value('last_adv_txid') or "N/A"
             context['reputation_data'] = reputation.calculate_reputation_score()
 
-            # Add all other necessary variables to the context
             context['device_ipv6'] = config.DEVICE_IPV6_ADDRESS
             context['device_payment_address'] = device_state.address
             context['price_sats'] = config.PRICE_SATS_PER_READING
             context['DATA_CAPTURE_INTERVAL_SECONDS'] = config.DATA_CAPTURE_INTERVAL_SECONDS
-            context['auto_refresh_interval'] = 30 # Example value
+            context['auto_refresh_interval'] = 30
             context['current_year'] = time.strftime('%Y')
             context['time'] = time
 
-            # We will not render the template if the crucial data is missing.
-            # This will force a server error instead of a white page.
-            if not context.get('batches'):
-                logger.error("!!! BATCHES IS EMPTY OR NONE. ABORTING TEMPLATE RENDER. !!!")
-                # This will cause a deliberate server crash that we can see in the logs.
-                # It's better than a silent failure.
-                raise ValueError("Batches data is missing, cannot render dashboard.")
-
-            logger.info("--- Data gathering complete. Rendering template. ---")
-            # Use the '**' operator to unpack the dictionary into keyword arguments
             return render_template("index.html", **context)
 
         except Exception as e:
@@ -123,8 +96,6 @@ def register_all_routes(app, device_state):
 
     @app.route("/fetch_data/<int:reading_id>", methods=['GET'])
     def fetch_data_route(reading_id: int):
-        logger.info("fetch_data_route function is being CALLED.") # Also add this one
-
         token = request.args.get("token")
         if not token: abort(401, "Access token is missing.")
 
@@ -158,38 +129,26 @@ def register_all_routes(app, device_state):
 
     @app.route("/batch/fetch/<string:batch_id>", methods=['GET'])
     def batch_fetch_route(batch_id: str):
-        logger.info(f"--- ENTERING batch_fetch_route for batch_id: {batch_id[:8]}... ---")
-        
         token = request.args.get("token")
-        if not token: 
-            logger.warning("FETCH FAIL: No token provided.")
+        if not token:
             abort(401, "Access token is missing.")
 
-        logger.info("Verifying token...")
         token_details = database.get_token_details(batch_id, token)
-        if not token_details: 
-            logger.error("FETCH FAIL: Token details not found in database. Invalid token.")
+        if not token_details:
             abort(403, "Invalid or mismatched token for this batch.")
-        
-        logger.info("Token verified. Now checking cache for batch details...")
+
         batch_details = database.get_batch_details_for_fetch(batch_id)
         if not batch_details:
-            logger.error(f"FETCH FAIL: get_cached_batch_details returned None for batch_id {batch_id[:8]}...")
             abort(404, "Could not find details for this batch ID (internal inconsistency).")
 
-        logger.info(f"Batch details found. Fetching readings from {batch_details['start_timestamp']} to {batch_details['end_timestamp']}...")
         start_ts = batch_details['start_timestamp']
         end_ts = batch_details['end_timestamp']
         readings = database.get_readings_in_range(start_ts, end_ts)
 
         if not readings:
-            logger.error("FETCH FAIL: get_readings_in_range returned an empty list.")
             abort(404, "No data found for the given time range (internal inconsistency).")
-        
-        logger.info(f"Successfully fetched {len(readings)} readings. Incrementing token usage.")
-        database.increment_token_usage(token_details["token_id"])
 
-        logger.info("--- SUCCESS: Returning batch data. ---")
+        database.increment_token_usage(token_details["token_id"])
         return jsonify(readings)
     @app.route("/batch/price", methods=['POST'])
     def batch_price_route():
@@ -206,7 +165,6 @@ def register_all_routes(app, device_state):
         if num_readings == 0:
             return jsonify({"message": "No readings found in the specified time range."}), 404
 
-        # 2. --- THIS IS THE NEW LIMIT CHECK ---
         max_size = config.BATCH_MAX_SIZE 
         if max_size > 0 and num_readings > max_size:
             # The request is too large. Reject it with a helpful error message.
@@ -224,10 +182,7 @@ def register_all_routes(app, device_state):
         batch_id = hashlib.sha256(f"{start_ts}:{end_ts}:{device_state.address}".encode()).hexdigest()
         
         try:
-            # --- THIS IS THE CORRECTED LINE ---
             database.cache_batch_details(batch_id, num_readings, total_price, start_ts, end_ts)
-            # --- END OF CORRECTION ---
-            
             logger.info(f"Cached price quote for batch_id {batch_id[:8]}...: {num_readings} readings for {total_price} sats.")
         except Exception:
             logger.exception("Failed to cache batch details. Cannot provide a quote.")
@@ -239,14 +194,9 @@ def register_all_routes(app, device_state):
             "payment_address": device_state.address,
             "payment_instructions": f"Send {total_price} sats to {device_state.address}. OP_RETURN: 'SENSORA_PAY:{batch_id}'."
         })
-   # In sensora_agent/src/routes.py
-
     @app.route("/batch/claim", methods=['POST'])
     def batch_claim_route():
-        """
-        Verifies a payment for a pre-quoted batch and issues an access token.
-        """
-        logger.info("batch_claim_route function is being CALLED.")
+        """Verifies a payment for a pre-quoted batch and issues an access token."""
         data = request.get_json()
         if not data or "batch_id" not in data or "payment_txid" not in data:
             abort(400, "Request must include 'batch_id' and 'payment_txid'.")
@@ -277,11 +227,7 @@ def register_all_routes(app, device_state):
         
         try:
             database.save_access_token(batch_id, consumer_payment_txid, access_token, expiry, config.TOKEN_MAX_USAGE)
-            
-            # --- THIS IS THE CORRECTED LINE ---
-            # Pass both the batch_id and the payment_txid to the function.
             database.mark_batch_as_claimed(batch_id, consumer_payment_txid)
-            # --- END OF CORRECTION ---
 
             return jsonify({
                 "message": "Access token for batch generated.", 
@@ -291,28 +237,15 @@ def register_all_routes(app, device_state):
             }), 201
         except sqlite3.IntegrityError:
             abort(409, "Token for this batch payment may have already been claimed.")
-        except Exception as e:
-            # Renamed the logger variable here to avoid conflict with the 'e' from the outer scope if any.
+        except Exception:
             logger.exception("Server error while issuing batch token.")
             abort(500)
-    # In sensora_agent/src/routes.py
 
-# ... (inside register_all_routes)
-
-    # --- ADD THIS TEMPORARY DEBUG ENDPOINT ---
     @app.route("/debug/batches", methods=['GET'])
     def debug_batches_route():
-        """
-        A temporary endpoint to fetch raw data from the get_latest_claimed_batches function.
-        """
-        logger.info("--- DEBUG: Calling get_latest_claimed_batches ---")
+        """Returns the latest claimed batches (same data as dashboard)."""
         try:
-            # Call the exact same function the dashboard uses
-            claimed_batches = database.get_latest_claimed_batches(limit=10)
-            logger.info(f"--- DEBUG: Function returned: {claimed_batches} ---")
-            
-            # Return the raw Python list as JSON
-            return jsonify(claimed_batches)
+            return jsonify(database.get_latest_claimed_batches(limit=10))
         except Exception as e:
-            logger.exception(f"--- DEBUG: Error in get_latest_claimed_batches: {e} ---")
+            logger.exception("Error in get_latest_claimed_batches: %s", e)
             return jsonify({"error": str(e)}), 500

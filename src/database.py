@@ -392,20 +392,6 @@ def get_latest_tokens(limit: int = 10) -> list:
         return []
     finally:
         if conn: conn.close()
-    """Fetches the most recently created access tokens."""
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM access_tokens ORDER BY token_id DESC LIMIT ?", (limit,))
-        return [dict(row) for row in cursor.fetchall()]
-    except Exception as e:
-        logger.exception(f"Error fetching latest tokens: {e}")
-        return []
-    finally:
-        if conn: conn.close()
-
-# Add this function inside src/database.py
 
 def increment_key_value(key: str, amount: int = 1):
     """Atomically increments a numeric value for a given key in the key-value store."""
@@ -505,8 +491,6 @@ def get_readings_in_range(start_ts: int, end_ts: int) -> list[dict]:
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
-
-\
 
 def get_batch_details_for_fetch(batch_id: str) -> dict | None:
     """

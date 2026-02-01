@@ -142,6 +142,10 @@ The agent is now running. To view live logs, use `docker compose logs -f`. To st
     ```
     The agent will start, and you can access its dashboard at `http://localhost:YOUR_PORT`.
 
+## API Documentation (Swagger)
+
+Interactive API documentation is available at **`/apidocs`** when the agent is running (e.g. `http://localhost:8083/apidocs`). It lists all endpoints, request/response schemas, and payment flows for single readings and batch purchases.
+
 ## API Endpoints
 
 The agent serves an API for direct data monetization.

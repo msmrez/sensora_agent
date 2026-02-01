@@ -9,6 +9,8 @@ import psutil # <-- NEW IMPORT
 
 # Import from our 'src' package
 from src import config, database, protocols, bsv_utils, routes
+from src.openapi_spec import SWAGGER_TEMPLATE
+from flasgger import Swagger
 
 # --- Logging Setup ---
 logging.basicConfig(
@@ -95,7 +97,7 @@ def data_capture_and_stamp_loop():
         "memory_usage": get_memory_usage_data
     }
     
-    active_sensor_key = config.cfg.get('agent', 'active_sensor_type', fallback='temp_humid')
+    active_sensor_key = config.ACTIVE_SENSOR_TYPE
     data_function = DATA_GATHERING_FUNCTIONS.get(active_sensor_key)
     
     if not data_function:
@@ -137,7 +139,7 @@ def data_capture_and_stamp_loop():
             logger.exception(f"CRITICAL ERROR in data_capture_and_stamp_loop: {e}")
             time.sleep(60)
         
-        scan_interval = config.cfg.getint('timing', 'scan_interval_seconds', fallback=300)
+        scan_interval = config.DATA_CAPTURE_INTERVAL_SECONDS
         logger.info(f"Stamper thread sleeping for {scan_interval} seconds...")
         time.sleep(scan_interval)
 
@@ -175,7 +177,7 @@ def broadcast_advertisement_tx() -> bool:
         return False
 
 def advertisement_loop():
-    adv_interval = config.cfg.getint('timing', 'advertisement_interval_seconds', fallback=43200)
+    adv_interval = config.ADVERTISEMENT_INTERVAL_SECONDS
     logger.info(f"Advertisement loop starting... will broadcast after the first interval of {adv_interval / 3600:.1f} hours.")
     time.sleep(adv_interval)
     
@@ -208,7 +210,9 @@ def create_app():
     logger.info(f"Device Initialized. Payment Address: {device_state.address}")
 
     routes.register_all_routes(app, device_state)
-    
+
+    Swagger(app, template=SWAGGER_TEMPLATE)
+
     logger.info("Broadcasting initial sensor advertisement...")
     if not broadcast_advertisement_tx():
         logger.warning("Initial advertisement broadcast FAILED. Check logs and funding.")
@@ -225,7 +229,7 @@ def create_app():
 if __name__ == "__main__":
     application = create_app()
     
-    listen_host = config.cfg.get('api', 'host', fallback='::')
+    listen_host = config.API_HOST or '::'
     logger.info(f"Starting Flask API server (listening on {listen_host}:{config.DEVICE_PORT})")
     try:
         application.run(host=listen_host, port=config.DEVICE_PORT, debug=False)
