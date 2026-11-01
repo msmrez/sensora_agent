@@ -155,10 +155,11 @@ def broadcast_bsv_transaction_bitails(raw_tx_hex: str) -> BroadcastResult:
         if returned == expected_txid and not node_error:
             logger.info(f"[BSV] Broadcast accepted by bitails.io. TXID: {returned}")
             return BroadcastResult(True, response.status_code, body)
-        if not node_error:
+        # Bitails answers node rejections with HTTP 201 and {"error": {"code": -25, ...}}; classify them like a 4xx.
+        # Its own connection failures ({"error": {"errno": -111, "code": "ECONNREFUSED"}}) leave the outcome unknown.
+        if not (isinstance(node_error, dict) and isinstance(node_error.get("code"), int)):
             logger.error(f"[BSV] Broadcast returned unexpected body (HTTP {response.status_code}): {body}")
             return BroadcastResult(None, response.status_code, body)
-        # Bitails answers some node rejections with HTTP 201 and {"error": {...}}; classify them like a 4xx.
     if is_already_known(body):
         return BroadcastResult(True, response.status_code, body)
     if response.status_code >= 500 or response.status_code == 429:

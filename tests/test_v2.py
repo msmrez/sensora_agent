@@ -77,7 +77,9 @@ def test_http_201_with_node_error_is_classified(monkeypatch):
     for body, expected in [('{"error":{"code":-25,"message":"missing-inputs"}' + meta + '}', False),
                            ('{"error":{"code":-27,"message":"already-in-mempool"}' + meta + '}', True),
                            ('{"txid":"%s"}' % tx.txid(), True),
-                           ('{"txid":"%s"}' % ("00" * 32), None)]:
+                           ('{"txid":"%s"}' % ("00" * 32), None),
+                           # Seen in run 2 during a Bitails outage: not a node verdict, so the outcome is unknown.
+                           ('{"error":{"errno":-111,"code":"ECONNREFUSED","syscall":"connect"}' + meta + '}', None)]:
         monkeypatch.setattr(bsv_utils.requests, "post", lambda *a, **k: _Resp(201, body))
         result = bsv_utils.broadcast_bsv_transaction_bitails(raw)
         assert result.accepted is expected, body
