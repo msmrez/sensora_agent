@@ -1,6 +1,8 @@
 # sensora_agent/src/database.py
 
 import sqlite3
+import hashlib
+import json
 import traceback
 import logging
 import time
@@ -8,11 +10,20 @@ from . import config # Import settings from our config file
 
 logger = logging.getLogger(__name__)
 
+def _add_column_if_missing(cursor, table: str, column: str, definition: str):
+    """Lets a v1 database be opened by v2 without losing data."""
+    existing = [row[1] for row in cursor.execute(f"PRAGMA table_info({table})")]
+    if column not in existing:
+        cursor.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
 def get_db_connection():
     """Establishes a connection to the SQLite database."""
     try:
-        conn = sqlite3.connect(config.DATABASE_NAME, check_same_thread=False)
+        # v2: four threads write (stamper, advertiser, tracker, API); WAL and a longer timeout avoid
+        # "database is locked" errors turning an accepted broadcast into a recorded failure.
+        conn = sqlite3.connect(config.DATABASE_NAME, check_same_thread=False, timeout=30)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
         return conn
     except sqlite3.Error as e:
         logger.exception(f"DATABASE_ERROR: Could not connect to database '{config.DATABASE_NAME}': {e}")
@@ -91,10 +102,60 @@ def init_db():
         cursor.execute('''
         CREATE INDEX IF NOT EXISTS idx_batch_quotes_created ON batch_quotes (created_timestamp);
         ''')
+
+        # --- v2: every broadcast is logged and tracked until it is mined or dropped ---
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tx_log (
+                txid TEXT PRIMARY KEY,
+                kind TEXT NOT NULL,          -- 'proof' or 'adv'
+                ref TEXT,                    -- reading_id for proofs
+                raw_hex TEXT NOT NULL,
+                fee INTEGER,
+                size INTEGER,
+                inputs TEXT,                 -- JSON list of [txid, vout]
+                created_at INTEGER NOT NULL,
+                http_status INTEGER,
+                broadcast_body TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',  -- pending | seen | mined | dropped | rejected
+                first_seen_at INTEGER,
+                mined_at INTEGER,
+                block_height INTEGER,
+                block_time INTEGER,
+                attempts INTEGER NOT NULL DEFAULT 1,
+                last_attempt_at INTEGER,
+                last_error TEXT,
+                replaced_by TEXT
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS tx_attempts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                txid TEXT NOT NULL,
+                at INTEGER NOT NULL,
+                accepted INTEGER,            -- 1 accepted, 0 rejected, NULL unknown
+                http_status INTEGER,
+                body TEXT
+            )
+        ''')
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tx_log_status ON tx_log (status);")
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS spent_outpoints (
+                txid TEXT NOT NULL,
+                vout INTEGER NOT NULL,
+                PRIMARY KEY (txid, vout)
+            )
+        ''')
+        _add_column_if_missing(cursor, "sensor_readings", "proof_status", "TEXT DEFAULT 'pending'")
+        _add_column_if_missing(cursor, "sensor_readings", "proof_block_height", "INTEGER")
+        _add_column_if_missing(cursor, "sensor_readings", "proof_mined_at", "INTEGER")
+        _add_column_if_missing(cursor, "batch_quotes", "commitment", "TEXT")
+        _add_column_if_missing(cursor, "batch_quotes", "reading_ids", "TEXT")
+        _add_column_if_missing(cursor, "tx_log", "last_attempt_at", "INTEGER")
         conn.commit()
         logger.info(f"[DB_INIT] Database '{config.DATABASE_NAME}' initialized/checked successfully.")
     except Exception as e:
         logger.exception(f"[DB_INIT] CRITICAL ERROR during database initialization: {e}")
+        raise
     finally:
         if conn:
             conn.close()
@@ -199,6 +260,13 @@ def get_latest_reading_id() -> int | None:
     finally:
         if conn:
             conn.close()
+
+def get_latest_mined_reading_id() -> int | None:
+    """v2: only readings with a mined proof are offered for single purchase."""
+    conn = get_db_connection()
+    row = conn.execute("SELECT MAX(reading_id) FROM sensor_readings WHERE proof_status = 'mined'").fetchone()
+    conn.close()
+    return row[0] if row and row[0] is not None else None
 
 def update_reading_as_paid(reading_id: int, payment_txid: str):
     """Marks a reading as paid in the database."""
@@ -450,19 +518,151 @@ def count_readings_in_range(start_ts: int, end_ts: int) -> int:
     conn.close()
     return count
 
-def cache_batch_details(batch_id: str, num_readings: int, total_price_sats: int, start_ts: int, end_ts: int):
+def get_provable_readings_in_range(start_ts: int, end_ts: int) -> list[dict]:
+    """v2: only readings whose proof is mined can be sold, so the buyer can always verify them."""
+    conn = get_db_connection()
+    rows = conn.execute(
+        "SELECT * FROM sensor_readings WHERE timestamp >= ? AND timestamp <= ? AND proof_status = 'mined' "
+        "ORDER BY timestamp ASC",
+        (start_ts, end_ts)
+    ).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def get_readings_by_ids(reading_ids: list[int]) -> list[dict]:
+    conn = get_db_connection()
+    placeholders = ', '.join('?' for _ in reading_ids)
+    rows = conn.execute(
+        f"SELECT * FROM sensor_readings WHERE reading_id IN ({placeholders}) ORDER BY timestamp ASC",
+        reading_ids
+    ).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def cache_batch_details(batch_id: str, num_readings: int, total_price_sats: int, start_ts: int, end_ts: int,
+                        commitment: str | None = None, reading_ids: list[int] | None = None):
     """Saves a batch quote to the database with an expiry."""
     conn = get_db_connection()
     cursor = conn.cursor()
     created_ts = int(time.time())
     cursor.execute(
         """
-        INSERT OR REPLACE INTO batch_quotes 
-        (batch_id, num_readings, total_price_sats, start_timestamp, end_timestamp, created_timestamp) 
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT OR REPLACE INTO batch_quotes
+        (batch_id, num_readings, total_price_sats, start_timestamp, end_timestamp, created_timestamp,
+         commitment, reading_ids)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (batch_id, num_readings, total_price_sats, start_ts, end_ts, created_ts)
+        (batch_id, num_readings, total_price_sats, start_ts, end_ts, created_ts,
+         commitment, json.dumps(reading_ids) if reading_ids is not None else None)
     )
+    conn.commit()
+    conn.close()
+
+# --- v2: transaction log and spent-outpoint memory ---
+
+def add_spent_outpoints(outpoints: list[tuple[str, int]]):
+    conn = get_db_connection()
+    conn.executemany("INSERT OR IGNORE INTO spent_outpoints (txid, vout) VALUES (?, ?)", outpoints)
+    conn.commit()
+    conn.close()
+
+def remove_spent_outpoints(outpoints: list[tuple[str, int]]):
+    conn = get_db_connection()
+    conn.executemany("DELETE FROM spent_outpoints WHERE txid = ? AND vout = ?", outpoints)
+    conn.commit()
+    conn.close()
+
+def get_live_txs() -> list[dict]:
+    """Transactions that are not dropped or rejected (pending, seen or mined)."""
+    conn = get_db_connection()
+    rows = conn.execute("SELECT txid, raw_hex, inputs, status FROM tx_log WHERE status IN ('pending', 'seen', 'mined')").fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def get_spent_outpoints() -> list[tuple[str, int]]:
+    conn = get_db_connection()
+    rows = conn.execute("SELECT txid, vout FROM spent_outpoints").fetchall()
+    conn.close()
+    return [(row["txid"], row["vout"]) for row in rows]
+
+def log_attempt(txid: str, accepted, http_status, body: str):
+    """Append-only history of every broadcast and rebroadcast response."""
+    conn = get_db_connection()
+    conn.execute("INSERT INTO tx_attempts (txid, at, accepted, http_status, body) VALUES (?, ?, ?, ?, ?)",
+                 (txid, int(time.time()), None if accepted is None else int(bool(accepted)), http_status, (body or "")[:2000]))
+    conn.commit()
+    conn.close()
+
+def log_tx(kind: str, ref: str | None, attempt: dict):
+    """
+    Records a broadcast. Accepted and unknown outcomes start as 'pending' and are resolved by the tracker;
+    definite rejections are kept as 'rejected' so the audit can count them.
+    """
+    for earlier in attempt.get("previous_attempts", []):
+        log_tx(kind, ref, {**earlier, "previous_attempts": []})
+    now = int(time.time())
+    status = "rejected" if attempt["accepted"] is False else "pending"
+    conn = get_db_connection()
+    conn.execute(
+        """INSERT OR REPLACE INTO tx_log
+           (txid, kind, ref, raw_hex, fee, size, inputs, created_at, http_status, broadcast_body, status,
+            last_attempt_at, last_error)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (attempt["txid"], kind, ref, attempt["raw_hex"], attempt.get("fee"), attempt.get("size"),
+         json.dumps(attempt.get("inputs", [])), now, attempt.get("http_status"),
+         (attempt.get("body") or "")[:2000], status, now,
+         None if attempt["accepted"] else (attempt.get("body") or "")[:500])
+    )
+    conn.commit()
+    conn.close()
+    log_attempt(attempt["txid"], attempt["accepted"], attempt.get("http_status"), attempt.get("body"))
+
+def get_descendant_txids(txid: str) -> set[str]:
+    """Open or past txs that (transitively) spend outputs of txid, using the recorded inputs."""
+    conn = get_db_connection()
+    rows = conn.execute("SELECT txid, inputs FROM tx_log WHERE status IN ('pending', 'seen')").fetchall()
+    conn.close()
+    spends = {row["txid"]: {i[0] for i in json.loads(row["inputs"] or "[]")} for row in rows}
+    found, frontier = set(), {txid}
+    while frontier:
+        nxt = {t for t, parents in spends.items() if parents & frontier and t not in found}
+        found |= nxt
+        frontier = nxt
+    return found
+
+def get_readings_needing_restamp(limit: int = 3) -> list[dict]:
+    """Readings whose proof was dropped or never accepted, and that have no open transaction."""
+    conn = get_db_connection()
+    rows = conn.execute(
+        """SELECT r.* FROM sensor_readings r
+           WHERE r.proof_status IN ('dropped', 'unstamped')
+             AND NOT EXISTS (SELECT 1 FROM tx_log t WHERE t.ref = CAST(r.reading_id AS TEXT) AND t.kind = 'proof'
+                             AND t.status IN ('pending', 'seen', 'mined'))
+           ORDER BY r.timestamp LIMIT ?""", (limit,)).fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def get_open_txs() -> list[dict]:
+    conn = get_db_connection()
+    rows = conn.execute("SELECT * FROM tx_log WHERE status IN ('pending', 'seen') ORDER BY created_at").fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
+
+def update_tx(txid: str, **fields):
+    if not fields:
+        return
+    conn = get_db_connection()
+    assignments = ', '.join(f"{name} = ?" for name in fields)
+    conn.execute(f"UPDATE tx_log SET {assignments} WHERE txid = ?", (*fields.values(), txid))
+    conn.commit()
+    conn.close()
+
+def update_reading_proof(reading_id: int, **fields):
+    if not fields:
+        return
+    conn = get_db_connection()
+    assignments = ', '.join(f"{name} = ?" for name in fields)
+    conn.execute(f"UPDATE sensor_readings SET {assignments} WHERE reading_id = ?", (*fields.values(), reading_id))
     conn.commit()
     conn.close()
 

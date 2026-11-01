@@ -18,6 +18,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ ./src/
 COPY app.py .
 COPY templates/ ./templates/
+COPY tools/ ./tools/
 
 # Expose the port the agent will listen on internally
 EXPOSE 8086

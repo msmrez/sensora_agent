@@ -7,7 +7,8 @@ import sqlite3
 from flask import request, jsonify, abort, render_template
 from werkzeug.exceptions import HTTPException
 import hashlib
-from . import config, database, bsv_utils, reputation
+import secrets
+from . import config, database, bsv_utils, reputation, protocols
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,7 @@ def register_all_routes(app, device_state):
 
     @app.route("/price")
     def get_price_route():
-        latest_id = database.get_latest_reading_id() or int(time.time())
+        latest_id = database.get_latest_mined_reading_id() or int(time.time())
         return jsonify({
             "current_reading_id": str(latest_id), 
             "price_sats": config.PRICE_SATS_PER_READING,
@@ -75,8 +76,11 @@ def register_all_routes(app, device_state):
             abort(400, "Missing 'payment_txid' in JSON body.")
         
         consumer_payment_txid = data['payment_txid']
-        if not database.reading_exists(reading_id):
+        reading = database.get_reading(reading_id)
+        if not reading:
             abort(404, f"Reading ID {reading_id} not found.")
+        if reading.get("proof_status") != "mined":
+            abort(409, f"Reading {reading_id} does not have a mined proof yet.")
         
         payment_verified, _ = bsv_utils.check_payment_on_chain(reading_id, device_state.address, device_state.locking_script_hex, consumer_payment_txid)
         if not payment_verified:
@@ -141,14 +145,18 @@ def register_all_routes(app, device_state):
         if not batch_details:
             abort(404, "Could not find details for this batch ID (internal inconsistency).")
 
-        start_ts = batch_details['start_timestamp']
-        end_ts = batch_details['end_timestamp']
-        readings = database.get_readings_in_range(start_ts, end_ts)
+        if batch_details.get('reading_ids'):
+            # v2: deliver exactly the readings the payment committed to, with their proof payloads.
+            readings = database.get_readings_by_ids(json.loads(batch_details['reading_ids']))
+        else:
+            readings = database.get_readings_in_range(batch_details['start_timestamp'], batch_details['end_timestamp'])
 
         if not readings:
             abort(404, "No data found for the given time range (internal inconsistency).")
 
         database.increment_token_usage(token_details["token_id"])
+        if batch_details.get('commitment'):
+            return jsonify({"batch_id": batch_id, "commitment": batch_details['commitment'], "readings": readings})
         return jsonify(readings)
     @app.route("/batch/price", methods=['POST'])
     def batch_price_route():
@@ -159,11 +167,12 @@ def register_all_routes(app, device_state):
         start_ts = data['start_timestamp']
         end_ts = data['end_timestamp']
 
-        # 1. Count the number of readings in the requested range.
-        num_readings = database.count_readings_in_range(start_ts, end_ts)
+        # 1. v2: only readings with a mined proof are offered, so every one can be verified by the buyer.
+        readings = database.get_provable_readings_in_range(start_ts, end_ts)
+        num_readings = len(readings)
 
         if num_readings == 0:
-            return jsonify({"message": "No readings found in the specified time range."}), 404
+            return jsonify({"message": "No readings with a mined proof in the specified time range."}), 404
 
         max_size = config.BATCH_MAX_SIZE 
         if max_size > 0 and num_readings > max_size:
@@ -178,21 +187,26 @@ def register_all_routes(app, device_state):
         # 3. If the check passes, proceed with price calculation.
         total_price = num_readings * config.PRICE_SATS_PER_READING
         
-        # Generate a unique ID for this specific batch request.
-        batch_id = hashlib.sha256(f"{start_ts}:{end_ts}:{device_state.address}".encode()).hexdigest()
-        
+        # The commitment binds the payment to the exact on-chain proofs being sold.
+        commitment = protocols.batch_commitment(
+            [protocols.data_hash_from_proof_payload(bytes.fromhex(r["op_return_payload_hex"])) for r in readings])
+        # A nonce keeps every quote distinct, so re-quoting a window never overwrites a claimed batch.
+        batch_id = hashlib.sha256(f"{start_ts}:{end_ts}:{device_state.address}:{commitment}:{secrets.token_hex(8)}".encode()).hexdigest()
+
         try:
-            database.cache_batch_details(batch_id, num_readings, total_price, start_ts, end_ts)
+            database.cache_batch_details(batch_id, num_readings, total_price, start_ts, end_ts,
+                                         commitment, [r["reading_id"] for r in readings])
             logger.info(f"Cached price quote for batch_id {batch_id[:8]}...: {num_readings} readings for {total_price} sats.")
         except Exception:
             logger.exception("Failed to cache batch details. Cannot provide a quote.")
             abort(500, "Internal error occurred while preparing the batch quote.")
         return jsonify({
             "batch_id": batch_id,
+            "commitment": commitment,
             "num_readings": num_readings,
             "total_price_sats": total_price,
             "payment_address": device_state.address,
-            "payment_instructions": f"Send {total_price} sats to {device_state.address}. OP_RETURN: 'SENSORA_PAY:{batch_id}'."
+            "payment_instructions": f"Send {total_price} sats to {device_state.address}. OP_RETURN: 'SENSORA_PAY:{batch_id}:{commitment}'."
         })
     @app.route("/batch/claim", methods=['POST'])
     def batch_claim_route():
@@ -210,6 +224,8 @@ def register_all_routes(app, device_state):
 
         expected_price = batch_details['total_price_sats']
         op_return_payload = f"SENSORA_PAY:{batch_id}"
+        if batch_details.get('commitment'):
+            op_return_payload += f":{batch_details['commitment']}"
 
         payment_verified, _ = bsv_utils.check_batch_payment_on_chain(
             op_return_payload,

@@ -1,0 +1,6 @@
+config.ini
+key.txt
+*.db
+__pycache__/
+.DS_Store
+venv/

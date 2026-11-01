@@ -15,14 +15,26 @@ def get_device_id_bytes(ipv6_string: str) -> bytes:
 def format_float_for_hash(value: float, precision: int = 1) -> str:
     return f"{value:.{precision}f}"
 
+def reading_data_hash(reading_timestamp_int: int, sensor_values_tuple) -> bytes:
+    """The hash stamped in SENSORA_PROOF. A buyer recomputes it from the delivered values."""
+    formatted_values = [format_float_for_hash(v) for v in sensor_values_tuple]
+    data_to_hash_str = f"{reading_timestamp_int}:" + ":".join(formatted_values)
+    return hashlib.sha256(data_to_hash_str.encode('utf-8')).digest()
+
+def data_hash_from_proof_payload(payload: bytes) -> bytes:
+    """The data hash is the last 32 bytes of a SENSORA_PROOF payload."""
+    return payload[-32:]
+
+def batch_commitment(data_hashes: list[bytes]) -> str:
+    """v2: binds a batch payment to the exact proofs being bought (hashes in timestamp order)."""
+    return hashlib.sha256(b''.join(data_hashes)).hexdigest()
+
 # --- Payload Creators ---
 
 def create_sensora_proof_payload(reading_timestamp_int: int, data_type_code: int, sensor_values_tuple: tuple) -> bytes:
     """Creates the 'SENSORA_PROOF' data stamping OP_RETURN payload."""
     device_id_bytes = get_device_id_bytes(config.DEVICE_IPV6_ADDRESS)
-    formatted_values = [format_float_for_hash(v) for v in sensor_values_tuple]
-    data_to_hash_str = f"{reading_timestamp_int}:" + ":".join(formatted_values)
-    data_hash = hashlib.sha256(data_to_hash_str.encode('utf-8')).digest()
+    data_hash = reading_data_hash(reading_timestamp_int, sensor_values_tuple)
     op_return_parts = [
         config.SENSORA_PROOF_PREFIX, 
         struct.pack('>B', 1), # Version

@@ -8,7 +8,7 @@ from threading import Lock
 import psutil # <-- NEW IMPORT
 
 # Import from our 'src' package
-from src import config, database, protocols, bsv_utils, routes
+from src import config, database, protocols, bsv_utils, routes, tracker
 from src.openapi_spec import SWAGGER_TEMPLATE
 from flasgger import Swagger
 
@@ -117,22 +117,31 @@ def data_capture_and_stamp_loop():
                 op_return_payload = protocols.create_sensora_proof_payload(reading_ts, data_type, value_tuple)
                 
                 logger.info(f"Attempting to stamp reading {reading_ts} on-chain...")
-                onchain_txid = bsv_utils.create_and_broadcast_op_return_tx(
+                attempt = bsv_utils.create_and_broadcast_op_return_tx(
                     bsv_tx_lock,
-                    device_state.private_key, 
-                    device_state.public_key, 
-                    device_state.locking_script_hex, 
+                    device_state.private_key,
+                    device_state.public_key,
+                    device_state.locking_script_hex,
                     op_return_payload
                 )
-                
-                if onchain_txid:
-                    database.increment_key_value('successful_stamp_count')
-                    database.set_key_value('last_stamp_timestamp', str(int(time.time())))
-                    logger.info(f"Successfully stamped reading {reading_ts} on-chain. TXID: {onchain_txid}")
-                    database.save_reading(reading_ts, reading_ts, value_tuple, data_type, op_return_payload.hex(), onchain_txid)
-                else:
+                # Save the reading before anything else can fail, so it always counts in the per-reading results.
+                if attempt and attempt["accepted"] is not False:
+                    # v2: a broadcast is only "pending"; the tracker counts the stamp once it is mined.
+                    database.save_reading(reading_ts, reading_ts, value_tuple, data_type, op_return_payload.hex(), attempt["txid"])
+                    database.increment_key_value('broadcast_stamp_count')
+                    logger.info(f"Broadcast proof for reading {reading_ts}. TXID: {attempt['txid']} (awaiting inclusion)")
+                if attempt:
+                    try:
+                        database.log_tx("proof", str(reading_ts), attempt)
+                    except Exception as e:
+                        logger.exception(f"Could not log proof tx {attempt['txid']}: {e}")
+                if not (attempt and attempt["accepted"] is not False):
+                    # v2: keep the reading (so success rates are per reading, not per surviving reading);
+                    # the tracker's restamp sweep will stamp it once a broadcast succeeds.
                     database.increment_key_value('failed_stamp_count')
-                    logger.error(f"Failed to stamp reading {reading_ts} on-chain. Will retry next cycle.")
+                    logger.error(f"Failed to stamp reading {reading_ts} on-chain. It will be re-stamped by the sweep.")
+                    database.save_reading(reading_ts, reading_ts, value_tuple, data_type, op_return_payload.hex(), f"unstamped:{reading_ts}")
+                    database.update_reading_proof(reading_ts, proof_status="unstamped")
 
         except Exception as e:
             database.increment_key_value('failed_stamp_count')
@@ -157,24 +166,43 @@ def broadcast_advertisement_tx() -> bool:
         return False
     
     logger.info(f"[ADV_TX] Attempting to broadcast advertisement transaction...")
-    txid = bsv_utils.create_and_broadcast_op_return_tx(
+    attempt = bsv_utils.create_and_broadcast_op_return_tx(
         bsv_tx_lock,
-        device_state.private_key, 
-        device_state.public_key, 
-        device_state.locking_script_hex, 
+        device_state.private_key,
+        device_state.public_key,
+        device_state.locking_script_hex,
         adv_op_return_payload
     )
+    if attempt:
+        database.log_tx("adv", None, attempt)
 
-    if txid:
-        logger.info(f"[ADV_TX] Advertisement TX broadcast successful! TXID: {txid}")
+    if attempt and attempt["accepted"] is not False:
+        txid = attempt["txid"]
+        logger.info(f"[ADV_TX] Advertisement TX broadcast accepted. TXID: {txid} (awaiting inclusion)")
         database.set_key_value('last_adv_txid', txid)
         database.set_key_value('last_adv_timestamp', str(int(time.time())))
-        database.increment_key_value('successful_adv_count')
+        database.increment_key_value('broadcast_adv_count')
         return True
     else:
         logger.error("[ADV_TX] Failed to broadcast advertisement transaction.")
         database.increment_key_value('failed_adv_count')
         return False
+
+def restamp_reading(reading: dict):
+    """Called by the tracker's sweep for a reading whose proof was dropped or never accepted."""
+    attempt = bsv_utils.create_and_broadcast_op_return_tx(
+        bsv_tx_lock, device_state.private_key, device_state.public_key,
+        device_state.locking_script_hex, bytes.fromhex(reading["op_return_payload_hex"]))
+    if not attempt:
+        return
+    if attempt["accepted"] is not False:
+        old_txid = reading["onchain_proof_txid"]
+        database.update_reading_proof(reading["reading_id"], onchain_proof_txid=attempt["txid"], proof_status="pending")
+        if not old_txid.startswith("unstamped:"):
+            database.update_tx(old_txid, replaced_by=attempt["txid"])
+        database.increment_key_value('restamp_count')
+        logger.info(f"[RESTAMP] Reading {reading['reading_id']} re-stamped. New TXID: {attempt['txid']}")
+    database.log_tx("proof", str(reading["reading_id"]), attempt)
 
 def advertisement_loop():
     adv_interval = config.ADVERTISEMENT_INTERVAL_SECONDS
@@ -208,6 +236,9 @@ def create_app():
     device_state.locking_script_hex = script_hex
     
     logger.info(f"Device Initialized. Payment Address: {device_state.address}")
+    bsv_utils.set_wallet(device_state.private_key, device_state.locking_script_hex)
+    bsv_utils.load_spent_outpoints(database.get_spent_outpoints())
+    bsv_utils.rebuild_own_change(database.get_open_txs())
 
     routes.register_all_routes(app, device_state)
 
@@ -223,6 +254,10 @@ def create_app():
     
     adv_thread = threading.Thread(target=advertisement_loop, name="AdvertiserThread", daemon=True)
     adv_thread.start()
+
+    tracker_thread = threading.Thread(target=tracker.tracker_loop, args=(restamp_reading,),
+                                      name="TrackerThread", daemon=True)
+    tracker_thread.start()
     
     return app
 

@@ -9,12 +9,13 @@ import uuid
 import secrets
 import struct
 import threading
+from dataclasses import dataclass
 from bsvlib import PrivateKey, PublicKey, TxOutput, TxInput, Unspent
 from bsvlib.script import Script
 from bsvlib.script.type import P2pkhScriptType
 from bsvlib.transaction import Transaction
 
-from . import config
+from . import config, database, rawtx
 
 logger = logging.getLogger(__name__)
 
@@ -109,104 +110,229 @@ def find_spendable_utxos_bitails(
         logger.exception(f"[BSV] Unexpected error in find_spendable_utxos_bitails: {e}")
     return [], 0
 
-def broadcast_bsv_transaction_bitails(raw_tx_hex: str) -> str | None:
+@dataclass
+class BroadcastResult:
+    """Outcome of one broadcast attempt. v1 discarded the HTTP status and body; v2 keeps them for the tx log.
+    accepted: True (2xx with our txid), False (definite rejection, including a 2xx carrying a node error),
+    None (unknown: timeout, 5xx, bad body)."""
+    accepted: bool | None
+    http_status: int | None
+    body: str
+
+# Substrings in a broadcast error body that mean an input is already spent elsewhere.
+CONFLICT_MARKERS = ("missing inputs", "missing-inputs", "missingorspent", "mempool-conflict",
+                    "txn-mempool-conflict", "double spend", "double-spend", "already spent")
+
+def is_already_known(body: str) -> bool:
+    body = (body or "").lower()
+    return ("already known" in body or "already-known" in body or "already in the mempool" in body
+            or "already-in-mempool" in body or "txn-already" in body)
+
+def is_conflict_error(body: str) -> bool:
+    body = (body or "").lower()
+    return not is_already_known(body) and any(marker in body for marker in CONFLICT_MARKERS)
+
+def broadcast_bsv_transaction_bitails(raw_tx_hex: str) -> BroadcastResult:
     broadcast_url = f"{config.BITAILS_API_BASE_URL}/tx/broadcast"
     headers = {"Content-Type": "application/json"}
-    payload = {"raw": raw_tx_hex} 
-    logger.info(f"[BSV] Broadcasting TX to bitails.io: {raw_tx_hex[:60]}...")
+    payload = {"raw": raw_tx_hex}
+    expected_txid = rawtx.txid_of(raw_tx_hex)
+    logger.info(f"[BSV] Broadcasting TX {expected_txid} to bitails.io")
     try:
         response = requests.post(broadcast_url, headers=headers, json=payload, timeout=15)
-        response.raise_for_status()
-        data = response.json()
-        if "txid" in data and data["txid"]:
-            logger.info(f"[BSV] Broadcast successful via bitails.io. TXID: {data['txid']}")
-            return data['txid']
-        else:
-            error_msg = data.get("message", "Unknown error from bitails.io broadcast") if isinstance(data, dict) else str(data)
-            logger.error(f"[BSV] Broadcast to bitails.io failed or TXID not returned. Response: {data}. Error: {error_msg}")
-            return None
     except requests.exceptions.RequestException as e:
-        logger.error(f"[BSV] Error broadcasting transaction via bitails.io: {e}")
-        if e.response is not None: logger.error(f"[BSV] bitails.io error response: {e.response.text}")
-    except json.JSONDecodeError as e: logger.error(f"[BSV] Error decoding JSON from bitails.io broadcast response: {e}")
-    except Exception as e:
-        logger.exception(f"[BSV] Unexpected error in broadcast_bsv_transaction_bitails: {e}")
-    return None
+        # The node may still have received it; the tracker resolves the outcome from the indexers.
+        logger.error(f"[BSV] Broadcast outcome unknown for {expected_txid[:12]}: {e}")
+        return BroadcastResult(None, None, str(e)[:2000])
+    body = response.text[:2000]
+    node_error = None
+    if 200 <= response.status_code < 300:
+        try:
+            data = response.json()
+            returned, node_error = data.get("txid"), data.get("error")
+        except (ValueError, AttributeError):
+            returned = None
+        if returned == expected_txid and not node_error:
+            logger.info(f"[BSV] Broadcast accepted by bitails.io. TXID: {returned}")
+            return BroadcastResult(True, response.status_code, body)
+        if not node_error:
+            logger.error(f"[BSV] Broadcast returned unexpected body (HTTP {response.status_code}): {body}")
+            return BroadcastResult(None, response.status_code, body)
+        # Bitails answers some node rejections with HTTP 201 and {"error": {...}}; classify them like a 4xx.
+    if is_already_known(body):
+        return BroadcastResult(True, response.status_code, body)
+    if response.status_code >= 500 or response.status_code == 429:
+        logger.error(f"[BSV] Broadcast outcome unknown (HTTP {response.status_code}): {body}")
+        return BroadcastResult(None, response.status_code, body)
+    logger.error(f"[BSV] Broadcast rejected by bitails.io (HTTP {response.status_code}): {body}")
+    return BroadcastResult(False, response.status_code, body)
 
-def create_and_broadcast_op_return_tx(lock: threading.Lock, priv_key_obj: PrivateKey, pub_key_obj: PublicKey, source_locking_script_hex: str, op_return_data: bytes) -> str | None:
+# --- Local UTXO bookkeeping (v2) ---
+# The indexer can lag behind the agent's own broadcasts, so v1 sometimes re-selected a coin it had just
+# spent, producing a conflicting transaction. v2 remembers what it spent and the change it created.
+_wallet_lock = threading.RLock()
+_spent_outpoints: set[tuple[str, int]] = set()
+_own_change: dict[tuple[str, int], Unspent] = {}
+
+_wallet = {"key": None, "script_hex": None}
+
+def set_wallet(priv_key_obj: PrivateKey, locking_script_hex: str) -> None:
+    _wallet.update(key=priv_key_obj, script_hex=locking_script_hex)
+
+def load_spent_outpoints(outpoints) -> None:
+    with _wallet_lock:
+        _spent_outpoints.update((txid, int(vout)) for txid, vout in outpoints)
+
+def _own_outputs(txid: str, raw_hex: str) -> dict[tuple[str, int], Unspent]:
+    """Outputs of one of our own transactions that pay back to our address."""
+    found = {}
+    for vout, (sats, script) in enumerate(rawtx.parse_outputs(bytes.fromhex(raw_hex))):
+        if sats > 0 and script.hex() == _wallet["script_hex"]:
+            found[(txid, vout)] = Unspent(txid=txid, vout=vout, satoshi=sats, script_pubkey_hex=_wallet["script_hex"],
+                                          script_type=P2pkhScriptType(), private_keys=[_wallet["key"]])
+    return found
+
+def rebuild_own_change(open_txs: list[dict]) -> None:
+    """At startup, re-learn the change of our still-unconfirmed transactions."""
+    with _wallet_lock:
+        for tx in open_txs:
+            for outpoint, utxo in _own_outputs(tx["txid"], tx["raw_hex"]).items():
+                if outpoint not in _spent_outpoints:
+                    _own_change.setdefault(outpoint, utxo)
+
+def release_inputs(dropped: dict, still_spent: set[tuple[str, int]], parents: dict[str, dict]) -> None:
+    """
+    A dropped transaction spent nothing: its inputs become spendable again, unless another live transaction
+    spends them. If an input was change from one of our own live transactions, it is put back in the pool.
+    """
+    released = [tuple(i) for i in json.loads(dropped.get("inputs") or "[]") if tuple(i) not in still_spent]
+    with _wallet_lock:
+        for outpoint in released:
+            _spent_outpoints.discard(outpoint)
+            parent = parents.get(outpoint[0])
+            if parent:
+                utxo = _own_outputs(parent["txid"], parent["raw_hex"]).get(outpoint)
+                if utxo:
+                    _own_change[outpoint] = utxo
+    if released:
+        database.remove_spent_outpoints(released)
+
+def _mark_spent(inputs: list[tuple[str, int]]) -> None:
+    with _wallet_lock:
+        _spent_outpoints.update(inputs)
+        for outpoint in inputs:
+            _own_change.pop(outpoint, None)
+    try:
+        database.add_spent_outpoints(inputs)
+    except Exception as e:
+        logger.exception(f"[BSV] Could not persist spent outpoints: {e}")
+
+def forget_change_of(txids: set[str]) -> None:
+    """Called when transactions are dropped: their change never existed, so it must not be selected."""
+    with _wallet_lock:
+        for outpoint in [o for o in _own_change if o[0] in txids]:
+            del _own_change[outpoint]
+
+def select_utxos(api_unspents: list[Unspent], spent: set, own_change: dict, needed_sats: int) -> list[Unspent]:
+    """Smallest-first selection (as in v1) over indexer UTXOs plus own unindexed change, minus spent outpoints."""
+    pool = {(u.txid, u.vout): u for u in api_unspents if (u.txid, u.vout) not in spent}
+    for outpoint, utxo in own_change.items():
+        if outpoint not in spent:
+            pool.setdefault(outpoint, utxo)
+    selected, total = [], 0
+    for utxo in sorted(pool.values(), key=lambda u: u.satoshi):
+        selected.append(utxo)
+        total += utxo.satoshi
+        # Each extra input adds ~148 bytes of fee; keep a margin so multi-input txs are not underpaid.
+        if total >= needed_sats + int(148 * len(selected) * config.BSV_FEE_SATOSHIS_PER_BYTE) + 1:
+            return selected
+    return []
+
+def _build_op_return_tx(priv_key_obj, source_address_str, unspents, op_return_data: bytes) -> Transaction:
+    script_bytes_list = [b'\x00', b'\x6a']
+    data_len = len(op_return_data)
+    if data_len <= 75: script_bytes_list.append(bytes([data_len]))
+    elif data_len <= 255: script_bytes_list.extend([b'\x4c', bytes([data_len])])
+    elif data_len <= 65535: script_bytes_list.extend([b'\x4d', struct.pack('<H', data_len)])
+    else: script_bytes_list.extend([b'\x4e', struct.pack('<I', data_len)])
+    script_bytes_list.append(op_return_data)
+    tx_obj = Transaction(tx_outputs=[TxOutput(out=Script(b''.join(script_bytes_list)), satoshi=0)],
+                         fee_rate=config.BSV_FEE_SATOSHIS_PER_BYTE)
+    tx_obj.add_inputs(unspents)
+    tx_obj.add_change(change_address=source_address_str)
+    tx_obj.sign()
+    return tx_obj
+
+MAX_CONFLICT_RETRIES = 2
+
+def create_and_broadcast_op_return_tx(lock: threading.Lock, priv_key_obj: PrivateKey, pub_key_obj: PublicKey, source_locking_script_hex: str, op_return_data: bytes) -> dict | None:
     """
     Thread-safe function to create, sign, and broadcast a transaction with an OP_RETURN.
-    It acquires a lock to prevent UTXO race conditions between threads.
+    Returns a dict describing the final attempt ("accepted" is True, False or None for unknown, and
+    "txid" is always the real txid of the raw transaction), or None if no transaction could be built.
+    On a conflict the spent coins are excluded and the transaction is rebuilt (up to MAX_CONFLICT_RETRIES).
     """
-    
+    if not isinstance(op_return_data, bytes):
+        raise ValueError(f"op_return_data must be bytes, got {type(op_return_data)}")
+
     with lock:
-        # The lock is now acquired. Only one thread can execute this code block at a time.
         logger.info("[BSV_LOCK] Acquired transaction lock.")
-        
-        source_address_str = pub_key_obj.address() 
-        estimated_tx_size = 148 + (9 + len(op_return_data)) + 34 + 10 
+        source_address_str = pub_key_obj.address()
+        estimated_tx_size = 148 + (9 + len(op_return_data)) + 34 + 10
         min_fee_needed = int(estimated_tx_size * config.BSV_FEE_SATOSHIS_PER_BYTE) or 1
-        
-        logger.info(f"[BSV] Attempting to create OP_RETURN for {source_address_str}. Estimated fee: {min_fee_needed} sats.")
-        
-        # This UTXO fetch is now protected by the lock.
-        available_unspents, total_sats = find_spendable_utxos_bitails(
-            source_address_str, source_locking_script_hex, [priv_key_obj] 
-        )
 
-        if not available_unspents or total_sats < min_fee_needed:
-            logger.warning(f"[BSV] Insufficient funds. Available: {total_sats}, Need: {min_fee_needed}. Please fund {source_address_str}")
-            logger.info("[BSV_LOCK] Releasing transaction lock (insufficient funds).")
+        attempts = []
+        excluded: set[tuple[str, int]] = set()   # coins rejected in this call only; never persisted
+        for _ in range(1 + MAX_CONFLICT_RETRIES):
+            available_unspents, _ = find_spendable_utxos_bitails(
+                source_address_str, source_locking_script_hex, [priv_key_obj]
+            )
+            with _wallet_lock:
+                selected_unspents = select_utxos(available_unspents, _spent_outpoints | excluded, _own_change, min_fee_needed)
+            if not selected_unspents:
+                logger.warning(f"[BSV] Insufficient unspent funds for a {min_fee_needed}-sat fee. Please fund {source_address_str}")
+                break
+            try:
+                tx_obj = _build_op_return_tx(priv_key_obj, source_address_str, selected_unspents, op_return_data)
+            except Exception as e:
+                logger.exception(f"[BSV] Error during OP_RETURN transaction creation/signing: {e}")
+                break
+
+            raw_hex = tx_obj.raw()
+            txid = rawtx.txid_of(raw_hex)
+            inputs = [(u.txid, u.vout) for u in selected_unspents]
+            logger.info(f"[BSV] TX {txid[:12]} constructed. Size: {len(raw_hex) // 2} bytes. Fee: {tx_obj.fee()} sats.")
+            result = broadcast_bsv_transaction_bitails(raw_hex)
+            attempt = {"txid": txid, "accepted": result.accepted, "raw_hex": raw_hex,
+                       "http_status": result.http_status, "body": result.body, "fee": tx_obj.fee(),
+                       "size": len(raw_hex) // 2, "inputs": inputs}
+            attempts.append(attempt)
+
+            if result.accepted is not False:
+                # Accepted, or unknown: treat the inputs as spent and the change as ours until the tracker
+                # learns otherwise. Re-using the inputs would risk a self-conflict if it did go through.
+                _mark_spent(inputs)
+                with _wallet_lock:
+                    for vout, out in enumerate(tx_obj.tx_outputs):
+                        if out.satoshi > 0 and out.locking_script.hex() == source_locking_script_hex:
+                            _own_change[(txid, vout)] = Unspent(
+                                txid=txid, vout=vout, satoshi=out.satoshi,
+                                script_pubkey_hex=source_locking_script_hex, script_type=P2pkhScriptType(),
+                                private_keys=[priv_key_obj])
+                break
+            if not is_conflict_error(result.body):
+                break
+            # One of these coins is spent (or its parent is not yet known to this node). Try other coins,
+            # without blacklisting: a coin wrongly excluded for good could stop all stamping.
+            excluded.update(inputs)
+
+        logger.info("[BSV_LOCK] Releasing transaction lock.")
+        if not attempts:
             return None
+        final = dict(attempts[-1])
+        final["previous_attempts"] = attempts[:-1]
+        return final
 
-        # Simple coin selection
-        available_unspents.sort(key=lambda u: u.satoshi)
-        selected_unspents: list[Unspent] = []; sats_in_selected = 0
-        for utxo in available_unspents:
-            selected_unspents.append(utxo)
-            sats_in_selected += utxo.satoshi
-            if sats_in_selected >= min_fee_needed: break 
-        
-        if sats_in_selected < min_fee_needed:
-            logger.error(f"[BSV] Could not select enough UTXOs. Selected: {sats_in_selected}, Need: {min_fee_needed}")
-            logger.info("[BSV_LOCK] Releasing transaction lock (UTXO selection failed).")
-            return None
-
-        try:
-            if not isinstance(op_return_data, bytes):
-                raise ValueError(f"op_return_data must be bytes, got {type(op_return_data)}")
-            
-            # Manual OP_RETURN script serialization
-            script_bytes_list = [b'\x00', b'\x6a']
-            data_len = len(op_return_data)
-            if data_len <= 75: script_bytes_list.append(bytes([data_len])) 
-            elif data_len <= 255: script_bytes_list.extend([b'\x4c', bytes([data_len])]) 
-            elif data_len <= 65535: script_bytes_list.extend([b'\x4d', struct.pack('<H', data_len)]) 
-            else: script_bytes_list.extend([b'\x4e', struct.pack('<I', data_len)])
-            script_bytes_list.append(op_return_data)
-            serialized_script_bytes = b''.join(script_bytes_list)
-            op_return_script = Script(serialized_script_bytes)
-
-            outputs_for_tx = [TxOutput(out=op_return_script, satoshi=0)] 
-            
-            tx_obj = Transaction(tx_outputs=outputs_for_tx, fee_rate=config.BSV_FEE_SATOSHIS_PER_BYTE)
-            tx_obj.add_inputs(selected_unspents)
-            tx_obj.add_change(change_address=source_address_str)
-            tx_obj.sign() 
-            
-            logger.info(f"[BSV] TX constructed. Size: {len(tx_obj.serialize())} bytes. Fee: {tx_obj.fee()} sats.")
-            logger.debug(f"[BSV RAW TX HEX TO BROADCAST]: {tx_obj.raw()}")
-            
-            # The broadcast is also within the lock, ensuring the whole process is atomic.
-            txid = broadcast_bsv_transaction_bitails(tx_obj.raw())
-            
-            logger.info("[BSV_LOCK] Releasing transaction lock (broadcast successful).")
-            return txid
-            
-        except Exception as e:
-            logger.exception(f"[BSV] Error during OP_RETURN transaction creation/signing: {e}")
-            logger.info("[BSV_LOCK] Releasing transaction lock (exception).")
-            return None
 def parse_op_return_data_from_hex(op_return_script_hex: str) -> bytes | None:
     """
     Parses data from an OP_RETURN script hex by manually handling pushdata opcodes.
@@ -252,112 +378,91 @@ def parse_op_return_data_from_hex(op_return_script_hex: str) -> bytes | None:
         return None
 
 def check_payment_on_chain(reading_id_to_check: int, payment_to_address: str, device_p2pkh_script_hex: str, specific_txid_to_check: str | None = None) -> tuple[bool, str | None]:
-    
-    candidate_tx_ids: list[str] = []
-    if specific_txid_to_check:
-        logger.info(f"[PAY_CHECK] Verifying specific TXID: {specific_txid_to_check} for reading {reading_id_to_check}")
-        candidate_tx_ids = [specific_txid_to_check]
-    else:
-        history_url = f"{config.BITAILS_API_BASE_URL}/address/{payment_to_address}/history"
-        logger.info(f"[PAY_CHECK] Fetching history for {payment_to_address} to check for reading {reading_id_to_check}")
-        try:
-            response = requests.get(history_url, timeout=15)
-            response.raise_for_status()
-            for tx in response.json().get("history", []):
-                if tx.get("outputSatoshis", 0) >= config.PRICE_SATS_PER_READING:
-                    candidate_tx_ids.append(tx["txid"])
-                    if len(candidate_tx_ids) >= 10: break
-        except Exception as e:
-            logger.error(f"[PAY_CHECK] Error fetching history: {e}")
-            return False, None
-    
-    if not candidate_tx_ids:
-        logger.warning(f"[PAY_CHECK] No candidate payment TXIDs found.")
+    """
+    Verifies a single-reading payment from the raw transaction (Bitails' /tx endpoint no longer returns
+    outputs, which silently broke the v1 check).
+    """
+    if not specific_txid_to_check:
+        logger.warning("[PAY_CHECK] A payment TXID is required.")
         return False, None
-
-    logger.info(f"[PAY_CHECK] Found {len(candidate_tx_ids)} candidates. Fetching details...")
-    expected_op_return_str = f"SENSORA_PAY:{reading_id_to_check}"
-
-    for txid in candidate_tx_ids:
-        tx_detail_url = f"{config.BITAILS_API_BASE_URL}/tx/{txid}"
-        try:
-            response = requests.get(tx_detail_url, timeout=15)
-            if response.status_code == 404:
-                logger.warning(f"[PAY_CHECK] TX {txid} not found on bitails.io (404).")
-                continue
-            response.raise_for_status()
-            tx_detail = response.json()
-            
-            outputs = tx_detail.get("outputs", [])
-            payment_found = any(o.get("script") == device_p2pkh_script_hex and o.get("satoshis", 0) >= config.PRICE_SATS_PER_READING for o in outputs)
-            
-            op_return_found = False
-            for o in outputs:
-                script_hex = o.get("script", "")
-                if script_hex.startswith("006a") or script_hex.startswith("6a"): # Added check for 6a as well
-                    op_return_data = parse_op_return_data_from_hex(script_hex)
-                    if op_return_data is not None:
-                        try:
-                            if op_return_data.decode('utf-8') == expected_op_return_str:
-                                op_return_found = True
-                                break 
-                        except UnicodeDecodeError:
-                            continue 
-
-            if payment_found and op_return_found:
-                logger.info(f"[PAY_CHECK] SUCCESS! Payment confirmed for reading {reading_id_to_check} in TX {txid}.")
-                return True, txid
-        except Exception as e:
-            logger.exception(f"[PAY_CHECK] Error processing TX {txid}: {e}")
-            if specific_txid_to_check: return False, None
-
-    logger.warning(f"[PAY_CHECK] Payment not confirmed for reading {reading_id_to_check} after checking candidates.")
-    return False, None
+    raw = rawtx.fetch_raw(specific_txid_to_check)
+    if raw is None:
+        logger.warning(f"[PAY_CHECK] TX {specific_txid_to_check} not found yet.")
+        return False, None
+    try:
+        ok, reason = rawtx.pays_with_memo(raw, device_p2pkh_script_hex, f"SENSORA_PAY:{reading_id_to_check}".encode(),
+                                          min_sats=config.PRICE_SATS_PER_READING)
+    except Exception as e:
+        logger.exception(f"[PAY_CHECK] Could not parse {specific_txid_to_check}: {e}")
+        return False, None
+    logger.info(f"[PAY_CHECK] {specific_txid_to_check[:12]} for reading {reading_id_to_check}: {reason}")
+    return (True, specific_txid_to_check) if ok else (False, None)
 
 
 def check_batch_payment_on_chain(op_return_string: str, our_address: str, our_script_hex: str, txid: str, expected_sats: int) -> (bool, str):
     """
-    Verifies a payment transaction for a BATCH of readings.
-    Checks for a specific OP_RETURN payload and an exact payment amount.
+    Verifies a payment transaction for a BATCH of readings: the OP_RETURN must equal the memo exactly and
+    an output must pay our script exactly the quoted amount.
     """
     try:
-        url = f"https://api.bitails.io/tx/{txid}"
-        response = requests.get(url, timeout=15)
-        if response.status_code != 200:
-            logger.warning(f"Payment check failed for txid {txid}: API returned status {response.status_code}")
-            return False, "API Error"
-        
-        tx_data = response.json()
-        
-        op_return_found = False
-        payment_found = False
-        
-        op_return_payload_bytes = op_return_string.encode('utf-8')
-
-        for output in tx_data.get('outputs', []):
-            script_hex = output.get('script', '')
-            
-            # Check for OP_RETURN
-            if script_hex.startswith("006a") or script_hex.startswith("6a"):
-                # Simple check for the exact payload
-                if op_return_payload_bytes.hex() in script_hex:
-                    op_return_found = True
-            
-            # Check for payment to our address
-            if output.get('script') == our_script_hex:
-                if output.get('satoshis') == expected_sats:
-                    payment_found = True
-
-        if op_return_found and payment_found:
-            logger.info(f"SUCCESS: Batch payment verified for txid {txid}.")
-            return True, "Payment verified."
-        elif not op_return_found:
-            logger.warning(f"Payment check failed for {txid}: Correct OP_RETURN not found.")
-            return False, "OP_RETURN mismatch."
-        else: # not payment_found
-            logger.warning(f"Payment check failed for {txid}: Correct payment amount of {expected_sats} sats not found.")
-            return False, "Amount mismatch."
-            
+        raw = rawtx.fetch_raw(txid)
+        if raw is None:
+            logger.warning(f"Payment check: tx {txid} not found yet.")
+            return False, "Not found."
+        ok, reason = rawtx.pays_with_memo(raw, our_script_hex, op_return_string.encode('utf-8'), exact_sats=expected_sats)
+        (logger.info if ok else logger.warning)(f"Batch payment check for {txid}: {reason}")
+        return ok, reason
     except Exception as e:
         logger.exception(f"An unexpected error occurred during payment verification for txid {txid}: {e}")
         return False, "Exception occurred."
+
+
+# --- Independent inclusion checks (v2) ---
+
+JUNGLEBUS_TX_URL = "https://junglebus.gorillapool.io/v1/transaction/get/{txid}"
+
+def get_tx_status(txid: str) -> dict:
+    """
+    Asks two public indexers whether a transaction is known and mined. The first indexer that reports a
+    block height decides "mined".
+    Returns {"state": "mined" | "seen" | "unseen" | "unknown", "block_height", "block_time"}.
+    "unseen" means both indexers answered "not found"; "unknown" means at least one could not be asked
+    (timeout, 429, 5xx), so the caller must not act on it.
+    """
+    status = {"state": "unknown", "block_height": None, "block_time": None}
+    answers = []
+    try:
+        r = requests.get(JUNGLEBUS_TX_URL.format(txid=txid), timeout=15, headers={"User-Agent": "sensora-agent"})
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("block_height"):
+                return {"state": "mined", "block_height": int(data["block_height"]),
+                        "block_time": int(data.get("block_time") or 0) or None}
+            answers.append("seen")
+        elif r.status_code == 404:
+            answers.append("unseen")
+        else:
+            answers.append("unknown")
+    except Exception as e:
+        logger.warning(f"[TX_STATUS] JungleBus lookup failed for {txid[:12]}: {e}")
+        answers.append("unknown")
+    try:
+        r = requests.get(f"{config.BITAILS_API_BASE_URL}/tx/{txid}", timeout=15)
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("blockheight"):
+                return {"state": "mined", "block_height": int(data["blockheight"]),
+                        "block_time": int(data.get("blocktime") or 0) or None}
+            answers.append("seen")
+        elif r.status_code == 404:
+            answers.append("unseen")
+        else:
+            answers.append("unknown")
+    except Exception as e:
+        logger.warning(f"[TX_STATUS] Bitails lookup failed for {txid[:12]}: {e}")
+        answers.append("unknown")
+    if "seen" in answers:
+        status["state"] = "seen"
+    elif answers == ["unseen", "unseen"]:
+        status["state"] = "unseen"
+    return status
