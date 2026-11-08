@@ -17,9 +17,9 @@ UNSEEN_BACKOFF_BASE = 120                # first rebroadcast 2 min after the las
 UNSEEN_BACKOFF_MAX = 3600
 REBROADCAST_IF_UNMINED_AFTER = 6 * 3600  # p90 inclusion in the field data was ~2.3 h
 RESTAMPS_PER_PASS = 3
-# A tx that an indexer still lists as unmined while the node twice reports its inputs as missing is dead
-# (evicted, or a parent was evicted); before this rule it stayed 'seen' forever and its reading was never
-# restamped (Run 1: 88 txs). Conflicts only count once the tx is an hour old, so indexer lag on a fresh or
+# A tx that an indexer still lists as unmined while the node twice rejects it on rebroadcast (usually
+# "missing inputs": evicted, or a parent was evicted) is dead; before this rule it stayed 'seen' forever and
+# its reading was never restamped (Run 1: 88 txs). tx_log.seen_conflicts counts any definite rejection. Conflicts only count once the tx is an hour old, so indexer lag on a fresh or
 # just-mined tx is not mistaken for death. If a tx is still dropped wrongly and later mines, the reading
 # simply has two proofs, and its released inputs are caught by the conflict-retry path when reused.
 SEEN_CONFLICTS_BEFORE_DROP = 2
@@ -42,12 +42,26 @@ def _mark_mined(tx: dict, status: dict, now: int):
     logger.info(f"[TRACKER] {tx['kind']} {tx['txid'][:12]} mined at height {status['block_height']}.")
 
 def _drop(tx: dict, reason: str):
-    """Drops tx and every open tx that spends its outputs; their change never existed."""
-    doomed = {tx["txid"]} | database.get_descendant_txids(tx["txid"])
+    """
+    Drops tx and every open tx that spends its outputs: their change never existed, so the descendants can
+    never be mined either. All of them are marked dropped (their readings become restampable) and the inputs
+    they took from coins outside this family are released.
+    """
+    descendants = database.get_descendant_txids(tx["txid"])
+    doomed = {tx["txid"]} | descendants
     bsv_utils.forget_change_of(doomed)
     live = [t for t in database.get_live_txs() if t["txid"] not in doomed]
     still_spent = {tuple(i) for t in live for i in json.loads(t["inputs"] or "[]")}
-    bsv_utils.release_inputs(tx, still_spent, {t["txid"]: t for t in live})
+    parents = {t["txid"]: t for t in live}
+    open_rows = {t["txid"]: t for t in database.get_open_txs()}
+    family = [tx] + [open_rows[d] for d in descendants if d in open_rows]
+    for member in family:
+        bsv_utils.release_inputs(member, still_spent, parents)
+        own_reason = reason if member is tx else f"parent {tx['txid'][:12]} dropped: {reason}"
+        _mark_dropped(member, own_reason)
+    logger.warning(f"[TRACKER] {tx['kind']} {tx['txid'][:12]} dropped ({len(family) - 1} descendants): {reason[:200]}")
+
+def _mark_dropped(tx: dict, reason: str):
     kind_label = "stamp" if tx["kind"] == "proof" else "adv"
     database.update_tx(tx["txid"], status="dropped", last_error=reason[:500])
     database.increment_key_value(f"dropped_{kind_label}_count")
@@ -56,7 +70,6 @@ def _drop(tx: dict, reason: str):
         reading = database.get_reading(int(tx["ref"]))
         if reading and reading["onchain_proof_txid"] == tx["txid"] and reading.get("proof_status") != "mined":
             database.update_reading_proof(int(tx["ref"]), proof_status="dropped")
-    logger.warning(f"[TRACKER] {tx['kind']} {tx['txid'][:12]} dropped ({len(doomed) - 1} descendants): {reason[:200]}")
 
 def _rebroadcast(tx: dict, now: int):
     result = bsv_utils.broadcast_bsv_transaction_bitails(tx["raw_hex"])
@@ -66,7 +79,8 @@ def _rebroadcast(tx: dict, now: int):
     if result.accepted:
         if tx.get("seen_conflicts"):
             database.update_tx(tx["txid"], seen_conflicts=0)
-    elif result.accepted is False and bsv_utils.is_conflict_error(result.body):
+    elif result.accepted is False:
+        # Any definite rejection (a conflict such as "missing inputs", or e.g. a fee below the node's minimum).
         # "Missing inputs" is also what a node says for an already-mined tx; ask the indexers once more.
         status = bsv_utils.get_tx_status(tx["txid"])
         if status["state"] == "mined":

@@ -127,7 +127,8 @@ CONFLICT_MARKERS = ("missing inputs", "missing-inputs", "missingorspent", "mempo
 def is_already_known(body: str) -> bool:
     body = (body or "").lower()
     return ("already known" in body or "already-known" in body or "already in the mempool" in body
-            or "already-in-mempool" in body or "txn-already" in body)
+            or "already-in-mempool" in body or "txn-already" in body
+            or "already in block chain" in body or "already in the block chain" in body)
 
 def is_conflict_error(body: str) -> bool:
     body = (body or "").lower()

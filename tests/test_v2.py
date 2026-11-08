@@ -224,6 +224,7 @@ def test_tracker_drops_conflict_then_sweep_restamps(db, monkeypatch):
     tracker.check_open_transactions(now=int(_time.time()) + 600)
     assert db.get_reading(100)["proof_status"] == "dropped"
     assert ("tx-child", 1) not in bsv_utils._own_change      # descendant's change forgotten
+    assert db.get_open_txs() == []                            # descendant dropped with its parent
     restamped = []
     tracker.restamp_sweep(restamped.append)
     assert [r["reading_id"] for r in restamped] == [100]
@@ -451,3 +452,41 @@ def test_fresh_seen_tx_is_not_dropped_on_indexer_flips(db, monkeypatch):
         tracker.check_open_transactions(now=t + 60 * minutes)
     assert db.get_reading(100)["proof_status"] != "dropped"
     assert db.get_open_txs()[0]["seen_conflicts"] == 0
+
+
+
+# --- remaining review fixes (2026-11-08) --------------------------------------
+
+FEE_REJECTION = '{"error":{"code":-26,"message":"mempool min fee not met"}}'
+
+
+def test_non_conflict_rejection_on_rebroadcast_drops_unseen_tx(db, monkeypatch):
+    from src import tracker, bsv_utils
+    db.save_reading(100, 100, (20.0, 50.0), 1, "aa", "tx-a")
+    db.log_tx("proof", "100", _attempt("tx-a"))
+    monkeypatch.setattr(bsv_utils, "get_tx_status", _status("unseen"))
+    monkeypatch.setattr(bsv_utils, "broadcast_bsv_transaction_bitails",
+                        lambda raw: bsv_utils.BroadcastResult(False, 201, FEE_REJECTION))
+    tracker.check_open_transactions(now=int(_time.time()) + 600)
+    assert db.get_open_txs() == [] and db.get_reading(100)["proof_status"] == "dropped"
+    restamped = []
+    tracker.restamp_sweep(restamped.append)
+    assert [r["reading_id"] for r in restamped] == [100]
+
+
+def test_non_conflict_rejection_of_mined_tx_marks_it_mined(db, monkeypatch):
+    from src import tracker, bsv_utils
+    db.save_reading(100, 100, (20.0, 50.0), 1, "aa", "tx-a")
+    db.log_tx("proof", "100", _attempt("tx-a"))
+    answers = iter([_status("unseen")("x"), _status("mined", 920002, 1761000200)("x")])
+    monkeypatch.setattr(bsv_utils, "get_tx_status", lambda txid: next(answers))
+    monkeypatch.setattr(bsv_utils, "broadcast_bsv_transaction_bitails",
+                        lambda raw: bsv_utils.BroadcastResult(False, 201, FEE_REJECTION))
+    tracker.check_open_transactions(now=int(_time.time()) + 600)
+    assert db.get_reading(100)["proof_status"] == "mined"
+
+
+def test_already_in_block_chain_counts_as_known():
+    from src.bsv_utils import is_already_known, is_conflict_error
+    assert is_already_known('{"error":{"code":-27,"message":"Transaction already in block chain"}}')
+    assert not is_conflict_error("transaction already in block chain")
