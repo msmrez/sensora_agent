@@ -632,3 +632,16 @@ def test_advert_states_the_charged_price(monkeypatch):
     payload = protocols.create_advertisement_op_return_payload()
     services = json.loads(payload[payload.index(b"[{"):payload.rindex(b"}]") + 2])
     assert [s["price"] for s in services if s["type"] == 1] == [7]
+
+
+# --- last review items (2026-11-08) -------------------------------------------
+
+def test_advert_lists_only_the_active_service(monkeypatch):
+    import json
+    from src import protocols, config
+    monkeypatch.setattr(config, "DEVICE_IPV6_ADDRESS", "2001:db8::1")
+    monkeypatch.setattr(config, "ACTIVE_SENSOR_TYPE", "temp_humid")
+    monkeypatch.setitem(config.cfg["service.cpu_metrics"], "enabled", "true")   # enabled, but never sold
+    payload = protocols.create_advertisement_op_return_payload()
+    services = json.loads(payload[payload.index(b"[{"):payload.rindex(b"}]") + 2])
+    assert [s["type"] for s in services] == [1]

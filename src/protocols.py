@@ -56,14 +56,22 @@ def create_advertisement_op_return_payload() -> bytes | None:
         geohash_len_byte = struct.pack('>B', len(geohash_bytes))
 
         services_to_advertise = []
-        # Uses config.cfg to access the parser object.
+        active_section = f"service.{config.ACTIVE_SENSOR_TYPE}"
+        # Only the active sensor's data is captured and sold, so only that service is advertised.
         for section in config.cfg.sections():
-            if section.startswith('service.'):
+            if section.startswith('service.') and section != active_section:
+                if config.cfg[section].getboolean('enabled', False):
+                    logger.warning(f"[ADV] {section} is enabled but not the active sensor type "
+                                   f"('{config.ACTIVE_SENSOR_TYPE}'); it is not sold, so it is not advertised.")
+                continue
+            if section == active_section:
                 service_config = config.cfg[section]
-                if service_config.getboolean('enabled', False):
+                if not service_config.getboolean('enabled', False):
+                    logger.warning(f"[ADV] The active service {section} is disabled; nothing is advertised.")
+                else:
                     units_str = service_config.get('units', '')
                     price = service_config.getint('price_sats')
-                    if section == f"service.{config.ACTIVE_SENSOR_TYPE}" and price != config.PRICE_SATS_PER_READING:
+                    if price != config.PRICE_SATS_PER_READING:
                         # The agent charges [Service] price_sats; advertise what is actually charged.
                         logger.warning(f"[ADV] {section} price_sats={price} differs from the charged [Service] "
                                        f"price_sats={config.PRICE_SATS_PER_READING}; advertising the charged price.")
