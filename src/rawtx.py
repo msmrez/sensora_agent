@@ -67,8 +67,23 @@ def parse_outputs(raw: bytes) -> list[tuple[int, bytes]]:
     return outputs
 
 
+_raw_cache: dict[str, bytes] = {}   # a raw tx never changes for its txid (checked by hash), so caching is safe
+_RAW_CACHE_MAX = 256
+
+
 def fetch_raw(txid: str) -> bytes | None:
-    """Raw transaction bytes from Bitails, falling back to JungleBus. None if neither has it."""
+    """Raw transaction bytes (cached), else from Bitails, falling back to JungleBus. None if neither has it."""
+    if txid in _raw_cache:
+        return _raw_cache[txid]
+    raw = _fetch_raw_uncached(txid)
+    if raw is not None:
+        if len(_raw_cache) >= _RAW_CACHE_MAX:
+            _raw_cache.pop(next(iter(_raw_cache)))
+        _raw_cache[txid] = raw
+    return raw
+
+
+def _fetch_raw_uncached(txid: str) -> bytes | None:
     try:
         r = requests.get(BITAILS_RAW_URL.format(txid=txid), timeout=15)
         if r.status_code == 200 and r.text.strip():
@@ -100,3 +115,46 @@ def pays_with_memo(raw: bytes, script_hex: str, memo: bytes, exact_sats: int | N
     if min_sats is not None and not any(s >= min_sats for s in ours):
         return False, "Amount mismatch."
     return True, "Payment verified."
+
+
+def _pushes(script: bytes) -> list[bytes]:
+    """Every data push in a script (non-push opcodes are skipped)."""
+    out, i = [], 0
+    while i < len(script):
+        op = script[i]
+        if 0x01 <= op <= 0x4B:
+            n, start = op, i + 1
+        elif op == 0x4C:
+            n, start = script[i + 1], i + 2
+        elif op == 0x4D:
+            n, start = int.from_bytes(script[i + 1:i + 3], "little"), i + 3
+        elif op == 0x4E:
+            n, start = int.from_bytes(script[i + 1:i + 5], "little"), i + 5
+        else:
+            i += 1
+            continue
+        out.append(script[start:start + n])
+        i = start + n
+    return out
+
+
+def payer_addresses(raw: bytes) -> set[str]:
+    """
+    P2PKH addresses that signed the inputs of a transaction: the public key is the last push of each
+    unlocking script (<sig> <pubkey>). Inputs of any other type contribute nothing.
+    """
+    from bsvlib import PublicKey
+    i = 4
+    n, i = _varint(raw, i)
+    addresses = set()
+    for _ in range(n):
+        i += 36
+        length, i = _varint(raw, i)
+        pushes = _pushes(raw[i:i + length])
+        i += length + 4
+        if len(pushes) == 2 and len(pushes[1]) in (33, 65):
+            try:
+                addresses.add(PublicKey(pushes[1].hex()).address())
+            except Exception:
+                pass
+    return addresses

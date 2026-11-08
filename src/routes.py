@@ -85,6 +85,10 @@ def register_all_routes(app, device_state):
         payment_verified, _ = bsv_utils.check_payment_on_chain(reading_id, device_state.address, device_state.locking_script_hex, consumer_payment_txid)
         if not payment_verified:
             raise PaymentRequiredError("Payment verification failed.")
+        if not data.get("signature"):
+            abort(400, "Missing 'signature': sign " + bsv_utils.claim_message(reading_id, consumer_payment_txid) + " with a key that funded the payment.")
+        if not bsv_utils.claim_signed_by_payer(consumer_payment_txid, reading_id, data["signature"]):
+            abort(403, "Claim signature does not match any key that signed the payment.")
 
         access_token = bsv_utils.generate_access_token()
         expiry = int(time.time()) + config.TOKEN_EXPIRY_SECONDS
@@ -237,6 +241,10 @@ def register_all_routes(app, device_state):
         
         if not payment_verified:
             raise PaymentRequiredError("Batch payment verification failed.")
+        if not data.get("signature"):
+            abort(400, "Missing 'signature': sign " + bsv_utils.claim_message(batch_id, consumer_payment_txid) + " with a key that funded the payment.")
+        if not bsv_utils.claim_signed_by_payer(consumer_payment_txid, batch_id, data["signature"]):
+            abort(403, "Claim signature does not match any key that signed the payment.")
 
         access_token = bsv_utils.generate_access_token()
         expiry = int(time.time()) + config.TOKEN_EXPIRY_SECONDS

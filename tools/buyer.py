@@ -137,7 +137,9 @@ def run_round(row: dict, args, wallet: Wallet) -> dict:
     while row["claim_attempts"] < args.claim_attempts:
         row["claim_attempts"] += 1
         time.sleep(args.claim_wait)
-        c = requests.post(f"{args.agent}/batch/claim", json={"batch_id": quote["batch_id"], "payment_txid": row["pay_txid"]}, timeout=15)
+        signature = wallet.key.sign_text(f"SENSORA_CLAIM:{quote['batch_id']}:{row['pay_txid']}")[1]
+        c = requests.post(f"{args.agent}/batch/claim", json={"batch_id": quote["batch_id"], "payment_txid": row["pay_txid"],
+                                                             "signature": signature}, timeout=15)
         if c.status_code == 201:
             token = c.json()["access_token"]
             break

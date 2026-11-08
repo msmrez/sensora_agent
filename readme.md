@@ -155,6 +155,7 @@ The agent serves an API for direct data monetization.
 - `GET /`: Web dashboard showing agent status, recent readings, and tokens.
 - `GET /price`: Provides payment info for the latest single reading.
 - `POST /claim_reading/<reading_id>`: Claims a single reading after payment.
+  - **Body:** `{"payment_txid": "...", "signature": "..."}`
 - `GET /fetch_data/<reading_id>?token=...`: Fetches the raw data for a single reading.
 
 #### Batch Purchases
@@ -162,5 +163,7 @@ The agent serves an API for direct data monetization.
 - `POST /batch/price`: Gets a price quote for a historical batch of data.
   - **Body:** `{"start_timestamp": 1678880000, "end_timestamp": 1678886400}`
 - `POST /batch/claim`: Claims an entire batch after payment.
-  - **Body:** `{"batch_id": "...", "payment_txid": "..."}`
+  - **Body:** `{"batch_id": "...", "payment_txid": "...", "signature": "..."}`
+
+Both claim endpoints require `signature`: a Bitcoin Signed Message (base64) of `SENSORA_CLAIM:<reading_id or batch_id>:<payment_txid>`, made with a key that signed one of the payment's inputs (P2PKH). The payment txid is public, so without it anyone watching the chain could claim the buyer's token.
 - `GET /batch/fetch/<batch_id>?token=...`: Fetches the complete JSON array of readings for the batch.

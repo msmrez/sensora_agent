@@ -11,6 +11,7 @@ import struct
 import threading
 from dataclasses import dataclass
 from bsvlib import PrivateKey, PublicKey, TxOutput, TxInput, Unspent
+from bsvlib.keys import verify_signed_text
 from bsvlib.script import Script
 from bsvlib.script.type import P2pkhScriptType
 from bsvlib.transaction import Transaction
@@ -416,6 +417,32 @@ def check_batch_payment_on_chain(op_return_string: str, our_address: str, our_sc
     except Exception as e:
         logger.exception(f"An unexpected error occurred during payment verification for txid {txid}: {e}")
         return False, "Exception occurred."
+
+
+def claim_message(item_id, payment_txid: str) -> str:
+    """Text the payer signs (Bitcoin Signed Message) to claim the token for a payment."""
+    return f"SENSORA_CLAIM:{item_id}:{payment_txid}"
+
+
+def claim_signed_by_payer(payment_txid: str, item_id, signature: str | None) -> bool:
+    """
+    The payment txid and the batch id are public once the payment is broadcast, so anyone watching the chain
+    could claim the token first. Only the payer can sign the claim message with a key that signed one of the
+    payment's inputs. Replaying a seen claim is useless: access_tokens.payment_txid is UNIQUE.
+    """
+    if not signature:
+        return False
+    raw = rawtx.fetch_raw(payment_txid)
+    if raw is None:
+        return False
+    text = claim_message(item_id, payment_txid)
+    for address in rawtx.payer_addresses(raw):
+        try:
+            if verify_signed_text(text, address, signature):
+                return True
+        except Exception:
+            continue
+    return False
 
 
 # --- Independent inclusion checks (v2) ---

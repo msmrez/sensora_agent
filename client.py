@@ -168,7 +168,9 @@ def main(sensor_agent_ipv6: str, sensor_agent_port: int, reading_id_to_buy_str: 
     try:
         claim_url = f"{base_api_url}/claim_reading/{reading_id_to_buy_str}"
         print(f"Attempting to claim token from: {claim_url} with payment_txid: {consumer_payment_txid}")
-        claim_payload = {"payment_txid": consumer_payment_txid}
+        # Proves we are the payer: the payment txid is public, so without this anyone could claim our token.
+        claim_signature = consumer_priv_key.sign_text(f"SENSORA_CLAIM:{reading_id_to_buy_str}:{consumer_payment_txid}")[1]
+        claim_payload = {"payment_txid": consumer_payment_txid, "signature": claim_signature}
         response_claim = requests.post(claim_url, json=claim_payload, timeout=10)
         response_claim.raise_for_status()
         claim_data = response_claim.json()

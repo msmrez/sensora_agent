@@ -346,6 +346,80 @@ def test_accepted_rebroadcast_resets_seen_conflicts(db, monkeypatch):
     assert db.get_open_txs()[0]["seen_conflicts"] == 0
 
 
+def _payment(payer, payee, memo, sats):
+    script = Script(b"\x00\x6a\x4c" + bytes([len(memo)]) + memo)
+    tx = Transaction(tx_outputs=[TxOutput(out=payee.address(), satoshi=sats), TxOutput(out=script, satoshi=0)], fee_rate=0.05)
+    tx.add_inputs([utxo(payer, "ee" * 32, 0, 5000)])
+    tx.add_change(change_address=payer.address())
+    tx.sign()
+    return tx
+
+
+def test_payer_addresses_from_inputs():
+    from src import rawtx
+    payer, payee = PrivateKey(), PrivateKey()
+    tx = _payment(payer, payee, b"SENSORA_PAY:x", 10)
+    assert rawtx.payer_addresses(bytes.fromhex(tx.raw())) == {payer.address()}
+
+
+@pytest.fixture()
+def api(db, monkeypatch):
+    from flask import Flask
+    from src import routes, config
+    agent = PrivateKey()
+
+    class State:
+        address = agent.address()
+        locking_script_hex = agent.public_key().locking_script().hex()
+    app = Flask(__name__, template_folder=str(ROOT / "templates"))
+    routes.register_all_routes(app, State)
+    monkeypatch.setattr(config, "PRICE_SATS_PER_READING", 5)
+    monkeypatch.setattr(config, "TOKEN_EXPIRY_SECONDS", 3600)
+    monkeypatch.setattr(config, "TOKEN_MAX_USAGE", 3)
+    return app.test_client(), agent
+
+
+def _quote_and_pay(client, agent, db, monkeypatch, payer):
+    from src import protocols, config, rawtx
+    config.DEVICE_IPV6_ADDRESS = "2001:db8::1"
+    for ts in (1000, 1300):
+        payload = protocols.create_sensora_proof_payload(ts, 1, (20.0, 50.0))
+        db.save_reading(ts, ts, (20.0, 50.0), 1, payload.hex(), f"tx-{ts}")
+        db.update_reading_proof(ts, proof_status="mined")
+    quote = client.post("/batch/price", json={"start_timestamp": 0, "end_timestamp": 2000}).get_json()
+    tx = _payment(payer, agent, f"SENSORA_PAY:{quote['batch_id']}:{quote['commitment']}".encode(), quote["total_price_sats"])
+    raw = bytes.fromhex(tx.raw())
+    monkeypatch.setattr(rawtx, "fetch_raw", lambda txid: raw if txid == tx.txid() else None)
+    return quote, tx.txid()
+
+
+def test_batch_claim_requires_payer_signature(api, db, monkeypatch):
+    client, agent = api
+    payer, thief = PrivateKey(), PrivateKey()
+    quote, txid = _quote_and_pay(client, agent, db, monkeypatch, payer)
+    msg = f"SENSORA_CLAIM:{quote['batch_id']}:{txid}"
+    body = {"batch_id": quote["batch_id"], "payment_txid": txid}
+    assert client.post("/batch/claim", json=body).status_code == 400                       # no signature
+    assert client.post("/batch/claim", json={**body, "signature": thief.sign_text(msg)[1]}).status_code == 403
+    assert client.post("/batch/claim", json={**body, "signature": payer.sign_text(f"SENSORA_CLAIM:other:{txid}")[1]}).status_code == 403
+    r = client.post("/batch/claim", json={**body, "signature": payer.sign_text(msg)[1]})
+    assert r.status_code == 201 and r.get_json()["access_token"]
+
+
+def test_single_claim_requires_payer_signature(api, db, monkeypatch):
+    from src import rawtx
+    client, agent = api
+    payer, thief = PrivateKey(), PrivateKey()
+    db.save_reading(1000, 1000, (20.0, 50.0), 1, "aa", "tx-1000")
+    db.update_reading_proof(1000, proof_status="mined")
+    tx = _payment(payer, agent, b"SENSORA_PAY:1000", 5)
+    raw = bytes.fromhex(tx.raw())
+    monkeypatch.setattr(rawtx, "fetch_raw", lambda txid: raw)
+    msg = f"SENSORA_CLAIM:1000:{tx.txid()}"
+    assert client.post("/claim_reading/1000", json={"payment_txid": tx.txid(), "signature": thief.sign_text(msg)[1]}).status_code == 403
+    assert client.post("/claim_reading/1000", json={"payment_txid": tx.txid(), "signature": payer.sign_text(msg)[1]}).status_code == 201
+
+
 def test_fresh_seen_tx_is_not_dropped_on_indexer_flips(db, monkeypatch):
     # Run 1 pattern: indexers flip between unseen and seen; a young tx must not be dropped within minutes.
     from src import tracker, bsv_utils
