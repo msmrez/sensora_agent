@@ -543,3 +543,19 @@ def test_reputation_is_per_reading(db):
     db.increment_key_value("failed_stamp_count", 5)   # old counters no longer affect the rate
     rep = reputation.calculate_reputation_score()
     assert rep["stamp_success_rate"] == round(100 * 2 / 3, 2) and rep["total_stamps_recorded"] == 4
+
+
+# --- section A design fixes (2026-11-08) --------------------------------------
+
+def test_audit_per_reading_latency_uses_first_mined_proof():
+    import audit
+    readings = [{"reading_id": 1, "timestamp": 1000}, {"reading_id": 2, "timestamp": 2000}, {"reading_id": 3, "timestamp": 3000}]
+    results = [
+        {"kind": "proof", "ref": "1", "mined": True, "block_time": 1600},            # 600 s
+        {"kind": "proof_rejected", "ref": "2", "mined": False, "block_time": None},  # rejected, then restamped:
+        {"kind": "proof", "ref": "2", "mined": True, "block_time": 7400},            # 5400 s from the reading
+        {"kind": "proof", "ref": "3", "mined": False, "block_time": None},           # not mined: excluded
+        {"kind": "pay_batch", "ref": "b", "mined": True, "block_time": 1},
+    ]
+    lat = audit.per_reading_latency(results, readings)
+    assert lat["n"] == 2 and lat["max"] == 5400 and lat["p10"] == 600

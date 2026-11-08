@@ -62,6 +62,23 @@ def check(row: dict) -> dict:
             "error": last[:200]}
 
 
+def per_reading_latency(results: list[dict], readings: list[dict]) -> dict:
+    """
+    Latency per reading: from the reading's own timestamp to the block time of its FIRST mined proof.
+    The per-kind latency_s is per transaction and starts at the transaction's creation, so for a restamped
+    v2 reading it leaves out the time before the restamp; v1 has one transaction per reading, so there the
+    two measures coincide. This one is comparable across versions. Readings without a mined proof are not in it.
+    """
+    first_block = {}
+    for r in results:
+        if r["kind"] in ("proof", "proof_rejected") and r["mined"] and r["block_time"]:
+            ref = str(r["ref"])
+            first_block[ref] = min(first_block.get(ref, r["block_time"]), r["block_time"])
+    lat = [first_block[str(rd["reading_id"])] - rd["timestamp"] for rd in readings if str(rd["reading_id"]) in first_block]
+    return {"n": len(lat), "p10": pct(lat, 10), "p50": pct(lat, 50), "p90": pct(lat, 90),
+            "max": max(lat) if lat else None, "mean": round(statistics.mean(lat)) if lat else None}
+
+
 def pct(values, p):
     values = sorted(values)
     return values[min(len(values) - 1, int(p / 100 * len(values)))] if values else None
@@ -135,6 +152,7 @@ def main():
         summary["per_reading"] = {"readings": len(readings), "unresolved": len(errored_refs),
                                   "with_mined_proof": len(mined_refs),
                                   "pct": round(100 * len(mined_refs) / len(total), 1) if total else None}
+        summary["per_reading_latency_s"] = per_reading_latency(results, readings)
 
     print(json.dumps(summary, indent=2))
     Path(args.out_csv).with_suffix(".summary.json").write_text(json.dumps(summary, indent=2))
