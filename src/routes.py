@@ -59,16 +59,33 @@ def register_all_routes(app, device_state):
             logger.exception("--- UNHANDLED EXCEPTION IN DASHBOARD ROUTE ---")
             return "<h1>Internal Server Error</h1><p>An error occurred while building the dashboard. Please check the server logs for the full traceback.</p>", 500
 
+    def single_commitment(reading: dict) -> str:
+        """The commitment for one reading: the batch rule applied to a batch of one proof."""
+        return protocols.batch_commitment(
+            [protocols.data_hash_from_proof_payload(bytes.fromhex(reading["op_return_payload_hex"]))])
+
     @app.route("/price")
     def get_price_route():
-        latest_id = database.get_latest_mined_reading_id()
-        if latest_id is None:
-            return jsonify({"error": "Not Found", "message": "No reading with a mined proof is available yet."}), 404
+        requested = request.args.get("reading_id")
+        if requested is not None:
+            if not requested.isdigit():
+                abort(400, "'reading_id' must be an integer.")
+            reading = database.get_reading(int(requested))
+            if not reading or reading.get("proof_status") != "mined":
+                return jsonify({"error": "Not Found", "message": f"Reading {requested} has no mined proof."}), 404
+        else:
+            latest_id = database.get_latest_mined_reading_id()
+            if latest_id is None:
+                return jsonify({"error": "Not Found", "message": "No reading with a mined proof is available yet."}), 404
+            reading = database.get_reading(latest_id)
+        reading_id = reading["reading_id"]
+        commitment = single_commitment(reading)
         return jsonify({
-            "current_reading_id": str(latest_id), 
+            "current_reading_id": str(reading_id),
+            "commitment": commitment,
             "price_sats": config.PRICE_SATS_PER_READING,
             "payment_address": device_state.address,
-            "payment_instructions": f"Send {config.PRICE_SATS_PER_READING} sats to {device_state.address}. OP_RETURN: 'SENSORA_PAY:{latest_id}'."
+            "payment_instructions": f"Send {config.PRICE_SATS_PER_READING} sats to {device_state.address}. OP_RETURN: 'SENSORA_PAY:{reading_id}:{commitment}'."
         })
 
     @app.route("/claim_reading/<int:reading_id>", methods=['POST'])
@@ -84,7 +101,8 @@ def register_all_routes(app, device_state):
         if reading.get("proof_status") != "mined":
             abort(409, f"Reading {reading_id} does not have a mined proof yet.")
         
-        payment_verified, _ = bsv_utils.check_payment_on_chain(reading_id, device_state.address, device_state.locking_script_hex, consumer_payment_txid)
+        payment_verified, _ = bsv_utils.check_payment_on_chain(reading_id, device_state.address, device_state.locking_script_hex,
+                                                               consumer_payment_txid, commitment=single_commitment(reading))
         if not payment_verified:
             raise PaymentRequiredError("Payment verification failed.")
         if not data.get("signature"):

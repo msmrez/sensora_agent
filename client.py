@@ -93,17 +93,18 @@ def main(sensor_agent_ipv6: str, sensor_agent_port: int, reading_id_to_buy_str: 
         print(f"Error with consumer WIF or key derivation: {e}"); traceback.print_exc(); return
 
     try:
-        price_url = f"{base_api_url}/price"
+        price_url = f"{base_api_url}/price?reading_id={reading_id_to_buy_str}"
         print(f"Fetching price info from: {price_url}")
         response_price = requests.get(price_url, timeout=5)
         response_price.raise_for_status()
         price_data = response_price.json()
         device_payment_address = price_data["payment_address"]
         price_sats = int(price_data["price_sats"])
+        commitment = price_data["commitment"]   # binds the payment to this reading's on-chain proof
         print(f"Sensor Agent Payment Address: {device_payment_address}, Price: {price_sats} sats")
     except Exception as e: print(f"Error fetching /price: {e}"); traceback.print_exc(); return
 
-    op_return_payment_string = f"SENSORA_PAY:{reading_id_to_buy_str}"
+    op_return_payment_string = f"SENSORA_PAY:{reading_id_to_buy_str}:{commitment}"
     op_return_payment_bytes = op_return_payment_string.encode('utf-8')
     try:
         script_bytes_list = [b'\x00', b'\x6a']

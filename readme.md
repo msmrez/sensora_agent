@@ -153,7 +153,7 @@ The agent serves an API for direct data monetization.
 #### Single Readings
 
 - `GET /`: Web dashboard showing agent status, recent readings, and tokens.
-- `GET /price`: Provides payment info for the latest single reading.
+- `GET /price[?reading_id=...]`: Payment info for the latest (or the given) reading with a mined proof, including its `commitment`. Pay with OP_RETURN `SENSORA_PAY:<reading_id>:<commitment>`.
 - `POST /claim_reading/<reading_id>`: Claims a single reading after payment.
   - **Body:** `{"payment_txid": "...", "signature": "..."}`
 - `GET /fetch_data/<reading_id>?token=...`: Fetches the raw data for a single reading.

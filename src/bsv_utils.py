@@ -380,10 +380,12 @@ def parse_op_return_data_from_hex(op_return_script_hex: str) -> bytes | None:
         logger.exception(f"[BSV_PARSE] Error manually parsing OP_RETURN hex '{op_return_script_hex[:20]}...': {e}")
         return None
 
-def check_payment_on_chain(reading_id_to_check: int, payment_to_address: str, device_p2pkh_script_hex: str, specific_txid_to_check: str | None = None) -> tuple[bool, str | None]:
+def check_payment_on_chain(reading_id_to_check: int, payment_to_address: str, device_p2pkh_script_hex: str, specific_txid_to_check: str | None = None,
+                           commitment: str | None = None) -> tuple[bool, str | None]:
     """
     Verifies a single-reading payment from the raw transaction (Bitails' /tx endpoint no longer returns
-    outputs, which silently broke the v1 check).
+    outputs, which silently broke the v1 check). The memo is SENSORA_PAY:<reading_id>:<commitment>, where the
+    commitment binds the payment to the reading's on-chain proof, exactly as for a batch of one.
     """
     if not specific_txid_to_check:
         logger.warning("[PAY_CHECK] A payment TXID is required.")
@@ -393,7 +395,8 @@ def check_payment_on_chain(reading_id_to_check: int, payment_to_address: str, de
         logger.warning(f"[PAY_CHECK] TX {specific_txid_to_check} not found yet.")
         return False, None
     try:
-        ok, reason = rawtx.pays_with_memo(raw, device_p2pkh_script_hex, f"SENSORA_PAY:{reading_id_to_check}".encode(),
+        memo = f"SENSORA_PAY:{reading_id_to_check}" + (f":{commitment}" if commitment else "")
+        ok, reason = rawtx.pays_with_memo(raw, device_p2pkh_script_hex, memo.encode(),
                                           min_sats=config.PRICE_SATS_PER_READING)
     except Exception as e:
         logger.exception(f"[PAY_CHECK] Could not parse {specific_txid_to_check}: {e}")

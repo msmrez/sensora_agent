@@ -29,7 +29,8 @@ SWAGGER_TEMPLATE = {
         "/price": {
             "get": {
                 "summary": "Get price for single reading",
-                "description": "Returns payment address, price in satoshis, and latest reading ID. Pay this amount to the address with OP_RETURN `SENSORA_PAY:{reading_id}`.",
+                "description": "Returns payment address, price, a reading ID (the latest with a mined proof, or `reading_id`) and its commitment. Pay this amount to the address with OP_RETURN `SENSORA_PAY:{reading_id}:{commitment}`.",
+                "parameters": [{"name": "reading_id", "in": "query", "type": "integer", "required": False}],
                 "responses": {
                     "200": {
                         "description": "Price and payment info",
@@ -37,13 +38,15 @@ SWAGGER_TEMPLATE = {
                             "type": "object",
                             "properties": {
                                 "current_reading_id": {"type": "string"},
+                                "commitment": {"type": "string", "description": "sha256 of the reading's proof data hash"},
                                 "price_sats": {"type": "integer"},
                                 "payment_address": {"type": "string"},
                                 "payment_instructions": {"type": "string"},
                             },
                         },
                     },
-                    "404": {"description": "No reading with a mined proof yet"},
+                    "400": {"description": "reading_id is not an integer"},
+                    "404": {"description": "No reading with a mined proof yet, or reading_id has none"},
                 },
             }
         },
@@ -144,7 +147,7 @@ SWAGGER_TEMPLATE = {
         "/batch/price": {
             "post": {
                 "summary": "Get price for a batch of readings",
-                "description": "Request a quote for all readings in a time range. Pay total_price_sats with OP_RETURN `SENSORA_PAY:{batch_id}`.",
+                "description": "Request a quote for all readings in a time range. Pay total_price_sats with OP_RETURN `SENSORA_PAY:{batch_id}:{commitment}`.",
                 "parameters": [
                     {
                         "name": "body",

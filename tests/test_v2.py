@@ -424,13 +424,22 @@ def test_batch_fetch_enforces_expiry_and_usage(api, db, monkeypatch):
     assert client.get(f"/batch/fetch/{quote2['batch_id']}?token={token2}").status_code == 403
 
 
+def _mined_single_reading(db, ts):
+    """Saves a mined reading with a real proof payload; returns its single-reading commitment."""
+    from src import protocols, config
+    config.DEVICE_IPV6_ADDRESS = "2001:db8::1"
+    payload = protocols.create_sensora_proof_payload(ts, 1, (20.0, 50.0))
+    db.save_reading(ts, ts, (20.0, 50.0), 1, payload.hex(), f"tx-{ts}")
+    db.update_reading_proof(ts, proof_status="mined")
+    return protocols.batch_commitment([protocols.data_hash_from_proof_payload(payload)])
+
+
 def test_single_claim_requires_payer_signature(api, db, monkeypatch):
     from src import rawtx
     client, agent = api
     payer, thief = PrivateKey(), PrivateKey()
-    db.save_reading(1000, 1000, (20.0, 50.0), 1, "aa", "tx-1000")
-    db.update_reading_proof(1000, proof_status="mined")
-    tx = _payment(payer, agent, b"SENSORA_PAY:1000", 5)
+    commitment = _mined_single_reading(db, 1000)
+    tx = _payment(payer, agent, f"SENSORA_PAY:1000:{commitment}".encode(), 5)
     raw = bytes.fromhex(tx.raw())
     monkeypatch.setattr(rawtx, "fetch_raw", lambda txid: raw)
     msg = f"SENSORA_CLAIM:1000:{tx.txid()}"
@@ -545,6 +554,7 @@ def test_reputation_is_per_reading(db):
     assert rep["stamp_success_rate"] == round(100 * 2 / 3, 2) and rep["total_stamps_recorded"] == 4
 
 
+
 # --- section A design fixes (2026-11-08) --------------------------------------
 
 def test_audit_per_reading_latency_uses_first_mined_proof():
@@ -559,6 +569,31 @@ def test_audit_per_reading_latency_uses_first_mined_proof():
     ]
     lat = audit.per_reading_latency(results, readings)
     assert lat["n"] == 2 and lat["max"] == 5400 and lat["p10"] == 600
+
+
+def test_single_payment_must_carry_the_commitment(api, db, monkeypatch):
+    from src import rawtx
+    client, agent = api
+    payer = PrivateKey()
+    commitment = _mined_single_reading(db, 1000)
+    price = client.get("/price?reading_id=1000").get_json()
+    assert price["commitment"] == commitment and commitment in price["payment_instructions"]
+    for memo, expected in [(b"SENSORA_PAY:1000", 402),                                  # old memo, unbound
+                           (f"SENSORA_PAY:1000:{'00' * 32}".encode(), 402),             # wrong commitment
+                           (f"SENSORA_PAY:1000:{commitment}".encode(), 201)]:
+        tx = _payment(payer, agent, memo, 5)
+        raw = bytes.fromhex(tx.raw())
+        monkeypatch.setattr(rawtx, "fetch_raw", lambda txid, raw=raw: raw)
+        sig = payer.sign_text(f"SENSORA_CLAIM:1000:{tx.txid()}")[1]
+        assert client.post("/claim_reading/1000", json={"payment_txid": tx.txid(), "signature": sig}).status_code == expected, memo
+
+
+def test_price_for_a_given_reading(api, db):
+    client, agent = api
+    assert client.get("/price?reading_id=abc").status_code == 400
+    assert client.get("/price?reading_id=1000").status_code == 404
+    db.save_reading(1000, 1000, (20.0, 50.0), 1, "aa", "tx-1000")                 # not mined yet
+    assert client.get("/price?reading_id=1000").status_code == 404
 
 
 def test_advert_states_the_charged_price(monkeypatch):
