@@ -17,6 +17,13 @@ UNSEEN_BACKOFF_BASE = 120                # first rebroadcast 2 min after the las
 UNSEEN_BACKOFF_MAX = 3600
 REBROADCAST_IF_UNMINED_AFTER = 6 * 3600  # p90 inclusion in the field data was ~2.3 h
 RESTAMPS_PER_PASS = 3
+# A tx that an indexer still lists as unmined while the node twice reports its inputs as missing is dead
+# (evicted, or a parent was evicted); before this rule it stayed 'seen' forever and its reading was never
+# restamped (Run 1: 88 txs). Conflicts only count once the tx is an hour old, so indexer lag on a fresh or
+# just-mined tx is not mistaken for death. If a tx is still dropped wrongly and later mines, the reading
+# simply has two proofs, and its released inputs are caught by the conflict-retry path when reused.
+SEEN_CONFLICTS_BEFORE_DROP = 2
+SEEN_CONFLICT_MIN_AGE = 3600
 
 def _unseen_backoff(attempts: int) -> int:
     return min(UNSEEN_BACKOFF_BASE * 2 ** max(attempts - 1, 0), UNSEEN_BACKOFF_MAX)
@@ -56,13 +63,21 @@ def _rebroadcast(tx: dict, now: int):
     database.log_attempt(tx["txid"], result.accepted, result.http_status, result.body)
     database.update_tx(tx["txid"], attempts=tx["attempts"] + 1, last_attempt_at=now,
                        last_error=None if result.accepted else result.body[:500])
-    if result.accepted is False and bsv_utils.is_conflict_error(result.body):
+    if result.accepted:
+        if tx.get("seen_conflicts"):
+            database.update_tx(tx["txid"], seen_conflicts=0)
+    elif result.accepted is False and bsv_utils.is_conflict_error(result.body):
         # "Missing inputs" is also what a node says for an already-mined tx; ask the indexers once more.
         status = bsv_utils.get_tx_status(tx["txid"])
         if status["state"] == "mined":
             _mark_mined(tx, status, now)
         elif status["state"] == "unseen":
             _drop(tx, result.body)
+        elif status["state"] == "seen" and now - tx["created_at"] >= SEEN_CONFLICT_MIN_AGE:
+            conflicts = (tx.get("seen_conflicts") or 0) + 1
+            database.update_tx(tx["txid"], seen_conflicts=conflicts)
+            if conflicts >= SEEN_CONFLICTS_BEFORE_DROP:
+                _drop(tx, f"inputs missing on {conflicts} rebroadcasts while unmined: {result.body}")
 
 def check_open_transactions(now: int | None = None):
     now = now or int(time.time())

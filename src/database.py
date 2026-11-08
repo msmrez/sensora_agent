@@ -151,6 +151,7 @@ def init_db():
         _add_column_if_missing(cursor, "batch_quotes", "commitment", "TEXT")
         _add_column_if_missing(cursor, "batch_quotes", "reading_ids", "TEXT")
         _add_column_if_missing(cursor, "tx_log", "last_attempt_at", "INTEGER")
+        _add_column_if_missing(cursor, "tx_log", "seen_conflicts", "INTEGER NOT NULL DEFAULT 0")
         conn.commit()
         logger.info(f"[DB_INIT] Database '{config.DATABASE_NAME}' initialized/checked successfully.")
     except Exception as e:

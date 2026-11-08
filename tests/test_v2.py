@@ -311,3 +311,52 @@ def test_drop_releases_inputs_and_restores_parent_change(db, monkeypatch):
     assert (p_txid, 1) not in bsv_utils._spent_outpoints
     assert (p_txid, 1) in bsv_utils._own_change                     # parent's change is spendable again
     assert (p_txid, 1) not in set(db.get_spent_outpoints())
+
+
+# --- fixes after run 2 (2026-11-08) -------------------------------------------
+
+def test_seen_tx_with_repeated_conflicts_is_dropped_and_restamped(db, monkeypatch):
+    # Run 1: 88 txs stayed 'seen' forever because a conflict on rebroadcast only dropped 'unseen' txs.
+    from src import tracker, bsv_utils
+    db.save_reading(100, 100, (20.0, 50.0), 1, "aa", "tx-a")
+    db.log_tx("proof", "100", _attempt("tx-a"))
+    db.update_tx("tx-a", status="seen", first_seen_at=1)
+    monkeypatch.setattr(bsv_utils, "get_tx_status", _status("seen"))
+    monkeypatch.setattr(bsv_utils, "broadcast_bsv_transaction_bitails",
+                        lambda raw: bsv_utils.BroadcastResult(False, 201, '{"error":{"code":-25,"message":"missing-inputs"}}'))
+    t = int(_time.time())
+    tracker.check_open_transactions(now=t + tracker.REBROADCAST_IF_UNMINED_AFTER + 10)
+    assert db.get_open_txs()[0]["seen_conflicts"] == 1          # one answer could be indexer lag
+    assert db.get_reading(100)["proof_status"] != "dropped"
+    tracker.check_open_transactions(now=t + 2 * tracker.REBROADCAST_IF_UNMINED_AFTER + 20)
+    assert db.get_open_txs() == []
+    assert db.get_reading(100)["proof_status"] == "dropped"
+    restamped = []
+    tracker.restamp_sweep(restamped.append)
+    assert [r["reading_id"] for r in restamped] == [100]
+
+
+def test_accepted_rebroadcast_resets_seen_conflicts(db, monkeypatch):
+    from src import tracker, bsv_utils
+    db.log_tx("adv", None, _attempt("tx-adv"))
+    db.update_tx("tx-adv", status="seen", first_seen_at=1, seen_conflicts=1)
+    monkeypatch.setattr(bsv_utils, "get_tx_status", _status("seen"))
+    monkeypatch.setattr(bsv_utils, "broadcast_bsv_transaction_bitails", lambda raw: bsv_utils.BroadcastResult(True, 200, "{}"))
+    tracker.check_open_transactions(now=int(_time.time()) + tracker.REBROADCAST_IF_UNMINED_AFTER + 10)
+    assert db.get_open_txs()[0]["seen_conflicts"] == 0
+
+
+def test_fresh_seen_tx_is_not_dropped_on_indexer_flips(db, monkeypatch):
+    # Run 1 pattern: indexers flip between unseen and seen; a young tx must not be dropped within minutes.
+    from src import tracker, bsv_utils
+    db.save_reading(100, 100, (20.0, 50.0), 1, "aa", "tx-a")
+    db.log_tx("proof", "100", _attempt("tx-a"))
+    flips = iter([_status(s)("x") for s in ["unseen", "seen"] * 20])
+    monkeypatch.setattr(bsv_utils, "get_tx_status", lambda txid: next(flips))
+    monkeypatch.setattr(bsv_utils, "broadcast_bsv_transaction_bitails",
+                        lambda raw: bsv_utils.BroadcastResult(False, 201, '{"error":{"code":-25,"message":"missing-inputs"}}'))
+    t = int(_time.time())
+    for minutes in range(1, 50):
+        tracker.check_open_transactions(now=t + 60 * minutes)
+    assert db.get_reading(100)["proof_status"] != "dropped"
+    assert db.get_open_txs()[0]["seen_conflicts"] == 0
