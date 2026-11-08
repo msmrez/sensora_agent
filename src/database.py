@@ -362,6 +362,33 @@ def mark_batch_as_claimed(batch_id: str, payment_txid: str):
         if conn:
             conn.close()
 
+def claim_batch_with_token(batch_id: str, payment_txid: str, access_token: str, expiry_timestamp: int,
+                           max_usage: int) -> bool:
+    """
+    Marks the batch claimed and stores its token in one transaction. Returns False if the batch was already
+    claimed (e.g. a concurrent claim won), in which case nothing is written.
+    """
+    conn = get_db_connection()
+    try:
+        conn.isolation_level = None
+        conn.execute("BEGIN IMMEDIATE")
+        cur = conn.execute("UPDATE batch_quotes SET is_claimed = 1, consumer_payment_txid = ? "
+                           "WHERE batch_id = ? AND is_claimed = 0", (payment_txid, batch_id))
+        if cur.rowcount != 1:
+            conn.execute("ROLLBACK")
+            return False
+        conn.execute("INSERT INTO access_tokens (reading_id, payment_txid, access_token, expiry_timestamp, max_usage) "
+                     "VALUES (?, ?, ?, ?, ?)", (batch_id, payment_txid, access_token, expiry_timestamp, max_usage))
+        conn.execute("COMMIT")
+        logger.info(f"Batch {batch_id[:8]} claimed with TXID {payment_txid[:12]}; token saved.")
+        return True
+    except Exception:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.close()
+
 def get_token_details(reading_id, token):
     """Fetches token details for validation."""
     conn = None

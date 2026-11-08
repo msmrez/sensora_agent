@@ -258,8 +258,10 @@ def register_all_routes(app, device_state):
         expiry = int(time.time()) + config.TOKEN_EXPIRY_SECONDS
         
         try:
-            database.save_access_token(batch_id, consumer_payment_txid, access_token, expiry, config.TOKEN_MAX_USAGE)
-            database.mark_batch_as_claimed(batch_id, consumer_payment_txid)
+            # One transaction: of two concurrent claims for the same batch, only one gets a token.
+            if not database.claim_batch_with_token(batch_id, consumer_payment_txid, access_token, expiry,
+                                                    config.TOKEN_MAX_USAGE):
+                abort(409, "This batch has already been claimed.")
 
             return jsonify({
                 "message": "Access token for batch generated.", 
@@ -269,6 +271,8 @@ def register_all_routes(app, device_state):
             }), 201
         except sqlite3.IntegrityError:
             abort(409, "Token for this batch payment may have already been claimed.")
+        except HTTPException:
+            raise
         except Exception:
             logger.exception("Server error while issuing batch token.")
             abort(500)

@@ -218,7 +218,7 @@ SWAGGER_TEMPLATE = {
                     "403": {"description": "Signature is not from a key that funded the payment"},
                     "402": {"description": "Payment not verified"},
                     "404": {"description": "Batch quote not found or expired"},
-                    "409": {"description": "Token already claimed for this payment"},
+                    "409": {"description": "Batch already claimed, or token already claimed for this payment"},
                 },
             }
         },

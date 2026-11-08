@@ -506,3 +506,30 @@ def test_batch_price_validates_timestamps(api, db):
     for body in [{"start_timestamp": "0", "end_timestamp": 2000}, {"start_timestamp": True, "end_timestamp": 2000},
                  {"start_timestamp": 0, "end_timestamp": 1.5}, {"start_timestamp": 2000, "end_timestamp": 0}]:
         assert client.post("/batch/price", json=body).status_code == 400, body
+
+
+def test_batch_claim_is_atomic(db):
+    import threading
+    db.cache_batch_details("b1", 1, 5, 0, 10, "c", [1])
+    results = []
+    barrier = threading.Barrier(2)
+
+    def claim(i):
+        barrier.wait()
+        results.append(db.claim_batch_with_token("b1", f"pay{i}", f"token{i}", 9999999999, 3))
+    threads = [threading.Thread(target=claim, args=(i,)) for i in range(2)]
+    [t.start() for t in threads]; [t.join() for t in threads]
+    assert sorted(results) == [False, True]
+    conn = sqlite3.connect(db.config.DATABASE_NAME)
+    assert conn.execute("SELECT COUNT(*) FROM access_tokens WHERE reading_id = 'b1'").fetchone()[0] == 1
+    conn.close()
+
+
+def test_claimed_batch_second_claim_is_refused(api, db, monkeypatch):
+    client, agent = api
+    payer = PrivateKey()
+    quote, txid = _quote_and_pay(client, agent, db, monkeypatch, payer)
+    sig = payer.sign_text(f"SENSORA_CLAIM:{quote['batch_id']}:{txid}")[1]
+    body = {"batch_id": quote["batch_id"], "payment_txid": txid, "signature": sig}
+    assert client.post("/batch/claim", json=body).status_code == 201
+    assert client.post("/batch/claim", json=body).status_code in (404, 409)
