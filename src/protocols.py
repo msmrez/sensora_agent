@@ -62,12 +62,18 @@ def create_advertisement_op_return_payload() -> bytes | None:
                 service_config = config.cfg[section]
                 if service_config.getboolean('enabled', False):
                     units_str = service_config.get('units', '')
+                    price = service_config.getint('price_sats')
+                    if section == f"service.{config.ACTIVE_SENSOR_TYPE}" and price != config.PRICE_SATS_PER_READING:
+                        # The agent charges [Service] price_sats; advertise what is actually charged.
+                        logger.warning(f"[ADV] {section} price_sats={price} differs from the charged [Service] "
+                                       f"price_sats={config.PRICE_SATS_PER_READING}; advertising the charged price.")
+                        price = config.PRICE_SATS_PER_READING
                     service_json = {
                         "type": service_config.getint('data_type_code'),
                         "name": service_config.get('name'),
                         "desc": service_config.get('description'),
                         "units": [unit.strip() for unit in units_str.split(',') if unit.strip()],
-                        "price": service_config.getint('price_sats')
+                        "price": price
                     }
                     services_to_advertise.append(service_json)
         

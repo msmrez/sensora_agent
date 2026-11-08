@@ -559,3 +559,14 @@ def test_audit_per_reading_latency_uses_first_mined_proof():
     ]
     lat = audit.per_reading_latency(results, readings)
     assert lat["n"] == 2 and lat["max"] == 5400 and lat["p10"] == 600
+
+
+def test_advert_states_the_charged_price(monkeypatch):
+    import json
+    from src import protocols, config
+    monkeypatch.setattr(config, "DEVICE_IPV6_ADDRESS", "2001:db8::1")
+    monkeypatch.setattr(config, "ACTIVE_SENSOR_TYPE", "temp_humid")
+    monkeypatch.setattr(config, "PRICE_SATS_PER_READING", 7)                     # config.ini.example section says 20
+    payload = protocols.create_advertisement_op_return_payload()
+    services = json.loads(payload[payload.index(b"[{"):payload.rindex(b"}]") + 2])
+    assert [s["price"] for s in services if s["type"] == 1] == [7]
