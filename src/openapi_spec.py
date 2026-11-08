@@ -42,7 +42,8 @@ SWAGGER_TEMPLATE = {
                                 "payment_instructions": {"type": "string"},
                             },
                         },
-                    }
+                    },
+                    "404": {"description": "No reading with a mined proof yet"},
                 },
             }
         },
@@ -174,6 +175,7 @@ SWAGGER_TEMPLATE = {
                         },
                     },
                     "400": {"description": "Missing start_timestamp or end_timestamp"},
+                    "400": {"description": "Timestamps missing, not integers, or start > end"},
                     "404": {"description": "No readings in range"},
                     "413": {"description": "Batch size exceeds agent limit"},
                 },

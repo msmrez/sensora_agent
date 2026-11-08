@@ -490,3 +490,19 @@ def test_already_in_block_chain_counts_as_known():
     from src.bsv_utils import is_already_known, is_conflict_error
     assert is_already_known('{"error":{"code":-27,"message":"Transaction already in block chain"}}')
     assert not is_conflict_error("transaction already in block chain")
+
+
+def test_price_without_mined_reading_is_404(api, db):
+    client, agent = api
+    assert client.get("/price").status_code == 404
+    db.save_reading(1000, 1000, (20.0, 50.0), 1, "aa", "tx-1000")
+    db.update_reading_proof(1000, proof_status="mined")
+    r = client.get("/price")
+    assert r.status_code == 200 and r.get_json()["current_reading_id"] == "1000"
+
+
+def test_batch_price_validates_timestamps(api, db):
+    client, agent = api
+    for body in [{"start_timestamp": "0", "end_timestamp": 2000}, {"start_timestamp": True, "end_timestamp": 2000},
+                 {"start_timestamp": 0, "end_timestamp": 1.5}, {"start_timestamp": 2000, "end_timestamp": 0}]:
+        assert client.post("/batch/price", json=body).status_code == 400, body

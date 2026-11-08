@@ -61,7 +61,9 @@ def register_all_routes(app, device_state):
 
     @app.route("/price")
     def get_price_route():
-        latest_id = database.get_latest_mined_reading_id() or int(time.time())
+        latest_id = database.get_latest_mined_reading_id()
+        if latest_id is None:
+            return jsonify({"error": "Not Found", "message": "No reading with a mined proof is available yet."}), 404
         return jsonify({
             "current_reading_id": str(latest_id), 
             "price_sats": config.PRICE_SATS_PER_READING,
@@ -173,6 +175,9 @@ def register_all_routes(app, device_state):
 
         start_ts = data['start_timestamp']
         end_ts = data['end_timestamp']
+        # bool is a subclass of int in Python, so check the exact type.
+        if type(start_ts) is not int or type(end_ts) is not int or start_ts > end_ts:
+            abort(400, "'start_timestamp' and 'end_timestamp' must be integers (unix seconds) with start <= end.")
 
         # 1. v2: only readings with a mined proof are offered, so every one can be verified by the buyer.
         readings = database.get_provable_readings_in_range(start_ts, end_ts)
