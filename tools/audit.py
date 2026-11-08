@@ -39,10 +39,18 @@ def collect(db_path: str) -> list[dict]:
         for r in conn.execute("SELECT reading_id, timestamp, onchain_proof_txid FROM sensor_readings"):
             rows.append({"kind": "proof", "txid": r["onchain_proof_txid"], "ref": r["reading_id"],
                          "t0": r["timestamp"], "agent_status": "success", "attempts": 1})
+    # Payments have no latency baseline (t0), but they are placed in time by their claim: the access token's
+    # creation time ("tw", used only for --since/--cutoff). Without it every payment fell inside every window.
+    claimed_at = {}
+    if "access_tokens" in tables:
+        claimed_at = {r[0]: int(r[1]) for r in conn.execute(
+            "SELECT payment_txid, CAST(strftime('%s', created_at) AS INTEGER) FROM access_tokens WHERE created_at IS NOT NULL")}
     for r in conn.execute("SELECT DISTINCT consumer_payment_txid FROM sensor_readings WHERE consumer_payment_txid IS NOT NULL"):
-        rows.append({"kind": "pay_single", "txid": r[0], "ref": None, "t0": None, "agent_status": "verified", "attempts": None})
+        rows.append({"kind": "pay_single", "txid": r[0], "ref": None, "t0": None, "tw": claimed_at.get(r[0]),
+                     "agent_status": "verified", "attempts": None})
     for r in conn.execute("SELECT batch_id, consumer_payment_txid FROM batch_quotes WHERE is_claimed = 1"):
-        rows.append({"kind": "pay_batch", "txid": r[1], "ref": r[0], "t0": None, "agent_status": "verified", "attempts": None})
+        rows.append({"kind": "pay_batch", "txid": r[1], "ref": r[0], "t0": None, "tw": claimed_at.get(r[1]),
+                     "agent_status": "verified", "attempts": None})
     readings = [dict(r) for r in conn.execute("SELECT reading_id, timestamp FROM sensor_readings")]
     return [r for r in rows if r["txid"] and not r["txid"].startswith("unstamped:")], readings
 
@@ -79,6 +87,18 @@ def per_reading_latency(results: list[dict], readings: list[dict]) -> dict:
             "max": max(lat) if lat else None, "mean": round(statistics.mean(lat)) if lat else None}
 
 
+def in_window(t, since: int = 0, cutoff: int = 0) -> bool:
+    """True if t is inside [since, cutoff] (0 = open). Records without a time are kept."""
+    return t is None or ((not since or t >= since) and (not cutoff or t <= cutoff))
+
+
+def window(rows: list[dict], readings: list[dict], since: int = 0, cutoff: int = 0):
+    """Transactions by creation time (payments by claim time), readings by their timestamp."""
+    rows = [r for r in rows if in_window(r["tw"] if "tw" in r else r["t0"], since, cutoff)]
+    readings = [r for r in readings if in_window(r["timestamp"], since, cutoff)]
+    return rows, readings
+
+
 def pct(values, p):
     values = sorted(values)
     return values[min(len(values) - 1, int(p / 100 * len(values)))] if values else None
@@ -97,9 +117,7 @@ def main():
     args = ap.parse_args()
 
     rows, readings = collect(args.db)
-    in_window = lambda t: t is None or ((not args.since or t >= args.since) and (not args.cutoff or t <= args.cutoff))
-    rows = [r for r in rows if in_window(r["t0"])]
-    readings = [r for r in readings if in_window(r["timestamp"])]
+    rows, readings = window(rows, readings, args.since, args.cutoff)
     if args.sample:
         rng = random.Random(args.seed)
         by_kind = {}

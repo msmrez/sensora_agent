@@ -645,3 +645,23 @@ def test_advert_lists_only_the_active_service(monkeypatch):
     payload = protocols.create_advertisement_op_return_payload()
     services = json.loads(payload[payload.index(b"[{"):payload.rindex(b"}]") + 2])
     assert [s["type"] for s in services] == [1]
+
+
+def test_audit_windows_payments_by_claim_time(tmp_path):
+    import audit
+    db = tmp_path / "a.db"
+    conn = sqlite3.connect(db)
+    conn.executescript("""
+        CREATE TABLE sensor_readings (reading_id INTEGER, timestamp INTEGER, onchain_proof_txid TEXT, consumer_payment_txid TEXT);
+        CREATE TABLE batch_quotes (batch_id TEXT, is_claimed INTEGER, consumer_payment_txid TEXT);
+        CREATE TABLE access_tokens (payment_txid TEXT, created_at TIMESTAMP);
+        INSERT INTO sensor_readings VALUES (100, 100, 'p1', NULL);
+        INSERT INTO batch_quotes VALUES ('early', 1, 'pay-early'), ('late', 1, 'pay-late'), ('legacy', 1, 'pay-legacy');
+        INSERT INTO access_tokens VALUES ('pay-early', datetime(1000, 'unixepoch')), ('pay-late', datetime(9000, 'unixepoch'));
+    """)
+    conn.commit(); conn.close()
+    rows, readings = audit.collect(str(db))
+    rows, readings = audit.window(rows, readings, since=50, cutoff=5000)
+    assert sorted(r["ref"] for r in rows if r["kind"] == "pay_batch") == ["early", "legacy"]   # no claim time: kept
+    assert [r["txid"] for r in rows if r["kind"] == "proof"] == ["p1"]
+    assert all(r["t0"] is None for r in rows if r["kind"] == "pay_batch")                       # still no latency
