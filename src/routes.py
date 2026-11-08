@@ -144,6 +144,9 @@ def register_all_routes(app, device_state):
         token_details = database.get_token_details(batch_id, token)
         if not token_details:
             abort(403, "Invalid or mismatched token for this batch.")
+        # Same limits as /fetch_data: before this check a batch token never expired and had no usage cap.
+        if int(time.time()) >= token_details["expiry_timestamp"]: abort(403, "Token expired.")
+        if token_details["usage_count"] >= token_details["max_usage"]: abort(403, "Token usage limit reached.")
 
         batch_details = database.get_batch_details_for_fetch(batch_id)
         if not batch_details:

@@ -406,6 +406,23 @@ def test_batch_claim_requires_payer_signature(api, db, monkeypatch):
     assert r.status_code == 201 and r.get_json()["access_token"]
 
 
+def test_batch_fetch_enforces_expiry_and_usage(api, db, monkeypatch):
+    from src import config
+    client, agent = api
+    payer = PrivateKey()
+    quote, txid = _quote_and_pay(client, agent, db, monkeypatch, payer)
+    sig = payer.sign_text(f"SENSORA_CLAIM:{quote['batch_id']}:{txid}")[1]
+    token = client.post("/batch/claim", json={"batch_id": quote["batch_id"], "payment_txid": txid, "signature": sig}).get_json()["access_token"]
+    url = f"/batch/fetch/{quote['batch_id']}?token={token}"
+    assert [client.get(url).status_code for _ in range(4)] == [200, 200, 200, 403]          # max_usage = 3
+    # A second, fresh token for another batch that has expired.
+    quote2, txid2 = _quote_and_pay(client, agent, db, monkeypatch, payer)
+    monkeypatch.setattr(config, "TOKEN_EXPIRY_SECONDS", -1)
+    sig2 = payer.sign_text(f"SENSORA_CLAIM:{quote2['batch_id']}:{txid2}")[1]
+    token2 = client.post("/batch/claim", json={"batch_id": quote2["batch_id"], "payment_txid": txid2, "signature": sig2}).get_json()["access_token"]
+    assert client.get(f"/batch/fetch/{quote2['batch_id']}?token={token2}").status_code == 403
+
+
 def test_single_claim_requires_payer_signature(api, db, monkeypatch):
     from src import rawtx
     client, agent = api
