@@ -533,3 +533,13 @@ def test_claimed_batch_second_claim_is_refused(api, db, monkeypatch):
     body = {"batch_id": quote["batch_id"], "payment_txid": txid, "signature": sig}
     assert client.post("/batch/claim", json=body).status_code == 201
     assert client.post("/batch/claim", json=body).status_code in (404, 409)
+
+
+def test_reputation_is_per_reading(db):
+    from src import reputation
+    for rid, status in [(1, "mined"), (2, "mined"), (3, "dropped"), (4, "pending")]:
+        db.save_reading(rid, rid, (20.0, 50.0), 1, "aa", f"tx-{rid}")
+        db.update_reading_proof(rid, proof_status=status)
+    db.increment_key_value("failed_stamp_count", 5)   # old counters no longer affect the rate
+    rep = reputation.calculate_reputation_score()
+    assert rep["stamp_success_rate"] == round(100 * 2 / 3, 2) and rep["total_stamps_recorded"] == 4

@@ -389,6 +389,15 @@ def claim_batch_with_token(batch_id: str, payment_txid: str, access_token: str, 
     finally:
         conn.close()
 
+def get_stamp_outcomes() -> dict:
+    """Per-reading proof outcomes: mined, failed so far (dropped or never stamped) and still pending."""
+    conn = get_db_connection()
+    rows = conn.execute("SELECT proof_status, COUNT(*) FROM sensor_readings GROUP BY proof_status").fetchall()
+    conn.close()
+    counts = {status: n for status, n in rows}
+    return {"readings": sum(counts.values()), "mined": counts.get("mined", 0),
+            "failed": counts.get("dropped", 0) + counts.get("unstamped", 0), "pending": counts.get("pending", 0)}
+
 def get_token_details(reading_id, token):
     """Fetches token details for validation."""
     conn = None

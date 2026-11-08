@@ -16,9 +16,12 @@ def calculate_reputation_score() -> dict:
     failed_adv = metrics.get('failed_adv_count', 0)
     total_adv = successful_adv + failed_adv
     
-    successful_stamps = metrics.get('successful_stamp_count', 0)
-    failed_stamps = metrics.get('failed_stamp_count', 0)
-    total_stamps = successful_stamps + failed_stamps
+    # Per reading, from the readings table: the counters counted a reading that failed and was then
+    # restamped as one failure plus one success, and missed failed restamps. 'dropped' and 'unstamped' are
+    # transient while the restamp sweep works; 'pending' readings are not counted until resolved.
+    outcomes = database.get_stamp_outcomes()
+    successful_stamps = outcomes['mined']
+    total_stamps = outcomes['mined'] + outcomes['failed']
     
     last_adv_ts = metrics.get('last_adv_timestamp', 0)
     last_stamp_ts = metrics.get('last_stamp_timestamp', 0)
@@ -42,6 +45,6 @@ def calculate_reputation_score() -> dict:
         'stamp_success_rate': stamp_success_rate,
         'last_activity_timestamp': last_activity_timestamp,
         'seconds_since_last_activity': seconds_since_last_activity,
-        'total_stamps_recorded': total_stamps,
+        'total_stamps_recorded': outcomes['readings'],
         'total_advertisements_sent': total_adv
     }
