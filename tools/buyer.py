@@ -134,6 +134,7 @@ def run_round(row: dict, args, wallet: Wallet) -> dict:
     row["t_paid"] = int(time.time())
 
     token = None
+    confirm_deadline = time.time() + args.confirm_timeout
     while row["claim_attempts"] < args.claim_attempts:
         row["claim_attempts"] += 1
         time.sleep(args.claim_wait)
@@ -143,6 +144,10 @@ def run_round(row: dict, args, wallet: Wallet) -> dict:
         if c.status_code == 201:
             token = c.json()["access_token"]
             break
+        if c.status_code == 402 and c.json().get("reason") == "unconfirmed" and time.time() < confirm_deadline:
+            # Payments above the agent's max_unconfirmed_sats are released only once mined (median ~15 min).
+            row["claim_attempts"] -= 1
+            time.sleep(max(0, args.confirm_wait - args.claim_wait))
     if not token:
         row["error"] = "claim not accepted"
         return row
@@ -180,6 +185,8 @@ def main():
     ap.add_argument("--rounds", type=int, default=0, help="0 = run forever")
     ap.add_argument("--fee-rate", type=float, default=0.05)
     ap.add_argument("--claim-wait", type=int, default=20)
+    ap.add_argument("--confirm-wait", type=int, default=60, help="seconds between claims while the payment is unmined")
+    ap.add_argument("--confirm-timeout", type=int, default=3 * 3600, help="give up waiting for a block after N seconds")
     ap.add_argument("--claim-attempts", type=int, default=30)
     args = ap.parse_args()
 

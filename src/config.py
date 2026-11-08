@@ -42,6 +42,10 @@ try:
 
     # [batch] Section
     BATCH_MAX_SIZE = cfg.getint('batch', 'max_batch_size')
+
+    # [Payment] Section (optional). Payments up to this amount are accepted once a public indexer has the
+    # transaction (unconfirmed); larger payments must be mined first. 0 = every payment must be mined.
+    MAX_UNCONFIRMED_SATS = cfg.getint('Payment', 'max_unconfirmed_sats', fallback=1000)
 except (configparser.NoSectionError, configparser.NoOptionError) as e:
     print(f"CRITICAL: Missing required setting in 'config.ini'. Error: {e}")
     exit(1)

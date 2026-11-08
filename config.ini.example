@@ -58,6 +58,13 @@ max_usage = 3
 max_batch_size = 1000
 
 
+[Payment]
+# Payments up to this many satoshis are accepted as soon as a public indexer has the transaction, before it is
+# mined (fast, but the payer could still double-spend it). Larger payments must be mined before data is
+# released. 0 = every payment must be mined.
+max_unconfirmed_sats = 1000
+
+
 # ===================================================================
 #         DETAILED SERVICE DEFINITIONS FOR ADVERTISEMENT
 # ===================================================================

@@ -105,6 +105,9 @@ def register_all_routes(app, device_state):
                                                                consumer_payment_txid, commitment=single_commitment(reading))
         if not payment_verified:
             raise PaymentRequiredError("Payment verification failed.")
+        if not bsv_utils.payment_confirmed_enough(consumer_payment_txid, config.PRICE_SATS_PER_READING):
+            return jsonify({"error": "Payment Required", "reason": "unconfirmed",
+                            "message": f"Payments above {config.MAX_UNCONFIRMED_SATS} sats must be mined before data is released. Retry later."}), 402
         if not data.get("signature"):
             abort(400, "Missing 'signature': sign " + bsv_utils.claim_message(reading_id, consumer_payment_txid) + " with a key that funded the payment.")
         if not bsv_utils.claim_signed_by_payer(consumer_payment_txid, reading_id, data["signature"]):
@@ -267,6 +270,9 @@ def register_all_routes(app, device_state):
         
         if not payment_verified:
             raise PaymentRequiredError("Batch payment verification failed.")
+        if not bsv_utils.payment_confirmed_enough(consumer_payment_txid, expected_price):
+            return jsonify({"error": "Payment Required", "reason": "unconfirmed",
+                            "message": f"Payments above {config.MAX_UNCONFIRMED_SATS} sats must be mined before data is released. Retry later."}), 402
         if not data.get("signature"):
             abort(400, "Missing 'signature': sign " + bsv_utils.claim_message(batch_id, consumer_payment_txid) + " with a key that funded the payment.")
         if not bsv_utils.claim_signed_by_payer(consumer_payment_txid, batch_id, data["signature"]):

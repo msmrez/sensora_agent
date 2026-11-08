@@ -571,6 +571,33 @@ def test_audit_per_reading_latency_uses_first_mined_proof():
     assert lat["n"] == 2 and lat["max"] == 5400 and lat["p10"] == 600
 
 
+def test_large_unconfirmed_payment_waits_for_a_block(api, db, monkeypatch):
+    from src import config, bsv_utils
+    client, agent = api
+    payer = PrivateKey()
+    quote, txid = _quote_and_pay(client, agent, db, monkeypatch, payer)       # 10 sats
+    body = {"batch_id": quote["batch_id"], "payment_txid": txid,
+            "signature": payer.sign_text(f"SENSORA_CLAIM:{quote['batch_id']}:{txid}")[1]}
+    monkeypatch.setattr(config, "MAX_UNCONFIRMED_SATS", 9)
+    monkeypatch.setattr(bsv_utils, "get_tx_status", _status("seen"))
+    r = client.post("/batch/claim", json=body)
+    assert r.status_code == 402 and r.get_json()["reason"] == "unconfirmed"
+    monkeypatch.setattr(bsv_utils, "get_tx_status", _status("mined", 920003, 1761000300))
+    assert client.post("/batch/claim", json=body).status_code == 201
+
+
+def test_small_payment_is_accepted_unconfirmed(api, db, monkeypatch):
+    from src import config, bsv_utils
+    client, agent = api
+    payer = PrivateKey()
+    quote, txid = _quote_and_pay(client, agent, db, monkeypatch, payer)
+    monkeypatch.setattr(config, "MAX_UNCONFIRMED_SATS", 10)
+    monkeypatch.setattr(bsv_utils, "get_tx_status", lambda txid: pytest.fail("no block needed for a small payment"))
+    body = {"batch_id": quote["batch_id"], "payment_txid": txid,
+            "signature": payer.sign_text(f"SENSORA_CLAIM:{quote['batch_id']}:{txid}")[1]}
+    assert client.post("/batch/claim", json=body).status_code == 201
+
+
 def test_single_payment_must_carry_the_commitment(api, db, monkeypatch):
     from src import rawtx
     client, agent = api

@@ -423,6 +423,16 @@ def check_batch_payment_on_chain(op_return_string: str, our_address: str, our_sc
         return False, "Exception occurred."
 
 
+def payment_confirmed_enough(payment_txid: str, amount_sats: int) -> bool:
+    """
+    Small payments are accepted unconfirmed (the double-spend risk is bounded by the amount); payments above
+    config.MAX_UNCONFIRMED_SATS must be mined first.
+    """
+    if amount_sats <= config.MAX_UNCONFIRMED_SATS:
+        return True
+    return get_tx_status(payment_txid)["state"] == "mined"
+
+
 def claim_message(item_id, payment_txid: str) -> str:
     """Text the payer signs (Bitcoin Signed Message) to claim the token for a payment."""
     return f"SENSORA_CLAIM:{item_id}:{payment_txid}"
