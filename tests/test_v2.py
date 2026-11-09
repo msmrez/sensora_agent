@@ -553,14 +553,18 @@ def test_batch_claim_is_atomic(db):
     conn.close()
 
 
-def test_claimed_batch_second_claim_is_refused(api, db, monkeypatch):
+def test_claimed_batch_cannot_be_claimed_with_another_payment(api, db, monkeypatch):
     client, agent = api
     payer = PrivateKey()
     quote, txid = _quote_and_pay(client, agent, db, monkeypatch, payer)
     sig = payer.sign_text(f"SENSORA_CLAIM:{quote['batch_id']}:{txid}")[1]
     body = {"batch_id": quote["batch_id"], "payment_txid": txid, "signature": sig}
     assert client.post("/batch/claim", json=body).status_code == 201
-    assert client.post("/batch/claim", json=body).status_code in (404, 409)
+    assert client.post("/batch/claim", json=body).status_code == 200      # same payer, same payment: same token
+    other = "ff" * 32
+    other_body = {"batch_id": quote["batch_id"], "payment_txid": other,
+                  "signature": payer.sign_text(f"SENSORA_CLAIM:{quote['batch_id']}:{other}")[1]}
+    assert client.post("/batch/claim", json=other_body).status_code in (404, 409)
 
 
 def test_reputation_is_per_reading(db):
@@ -684,3 +688,38 @@ def test_audit_windows_payments_by_claim_time(tmp_path):
     assert sorted(r["ref"] for r in rows if r["kind"] == "pay_batch") == ["early", "legacy"]   # no claim time: kept
     assert [r["txid"] for r in rows if r["kind"] == "proof"] == ["p1"]
     assert all(r["t0"] is None for r in rows if r["kind"] == "pay_batch")                       # still no latency
+
+
+def test_payer_can_claim_again_after_a_lost_reply(api, db, monkeypatch):
+    client, agent = api
+    payer, thief = PrivateKey(), PrivateKey()
+    quote, txid = _quote_and_pay(client, agent, db, monkeypatch, payer)
+    msg = f"SENSORA_CLAIM:{quote['batch_id']}:{txid}"
+    body = {"batch_id": quote["batch_id"], "payment_txid": txid}
+    first = client.post("/batch/claim", json={**body, "signature": payer.sign_text(msg)[1]})
+    assert first.status_code == 201
+    # The reply is "lost"; the payer claims again and gets the same token and the same data.
+    again = client.post("/batch/claim", json={**body, "signature": payer.sign_text(msg)[1]})
+    assert again.status_code == 200
+    assert again.get_json()["access_token"] == first.get_json()["access_token"]
+    assert again.get_json()["data"] == first.get_json()["data"]
+    # Someone else who saw the payment on chain still gets nothing.
+    assert client.post("/batch/claim", json={**body, "signature": thief.sign_text(msg)[1]}).status_code == 403
+    assert client.post("/batch/claim", json=body).status_code == 403
+
+
+def test_single_reading_payer_can_claim_again(api, db, monkeypatch):
+    from src import rawtx
+    client, agent = api
+    payer, thief = PrivateKey(), PrivateKey()
+    commitment = _mined_single_reading(db, 1000)
+    tx = _payment(payer, agent, f"SENSORA_PAY:1000:{commitment}".encode(), 5)
+    raw = bytes.fromhex(tx.raw())
+    monkeypatch.setattr(rawtx, "fetch_raw", lambda txid: raw)
+    msg = f"SENSORA_CLAIM:1000:{tx.txid()}"
+    first = client.post("/claim_reading/1000", json={"payment_txid": tx.txid(), "signature": payer.sign_text(msg)[1]})
+    again = client.post("/claim_reading/1000", json={"payment_txid": tx.txid(), "signature": payer.sign_text(msg)[1]})
+    assert (first.status_code, again.status_code) == (201, 200)
+    assert again.get_json()["access_token"] == first.get_json()["access_token"]
+    assert again.get_json()["data"] == first.get_json()["data"]
+    assert client.post("/claim_reading/1000", json={"payment_txid": tx.txid(), "signature": thief.sign_text(msg)[1]}).status_code == 403

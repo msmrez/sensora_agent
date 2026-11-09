@@ -414,6 +414,16 @@ def get_token_details(reading_id, token):
         if conn:
             conn.close()
 
+def get_token_for_payment(item_id, payment_txid: str) -> dict | None:
+    """The token already issued for this item and payment, if any (lets the payer claim again)."""
+    conn = get_db_connection()
+    try:
+        row = conn.execute("SELECT * FROM access_tokens WHERE reading_id = ? AND payment_txid = ?",
+                           (str(item_id), payment_txid)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
 def increment_token_usage(token_id):
     """Increments the usage count of a token."""
     conn = None

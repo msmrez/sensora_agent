@@ -137,6 +137,13 @@ def register_all_routes(app, device_state):
         if not bsv_utils.claim_signed_by_payer(consumer_payment_txid, reading_id, data["signature"]):
             abort(403, "Claim signature does not match any key that signed the payment.")
 
+        # A repeated claim by the payer (e.g. the first reply was lost) gets the same token and the data again.
+        existing = database.get_token_for_payment(reading_id, consumer_payment_txid)
+        if existing:
+            return jsonify({"message": "Already claimed; returning the existing token.", "access_token": existing["access_token"],
+                            "data_endpoint": f"/fetch_data/{reading_id}", "expires_at": existing["expiry_timestamp"],
+                            "data": reading_payload(reading)}), 200
+
         access_token = bsv_utils.generate_access_token()
         expiry = int(time.time()) + config.TOKEN_EXPIRY_SECONDS
         
@@ -261,6 +268,19 @@ def register_all_routes(app, device_state):
 
         batch_id = data['batch_id']
         consumer_payment_txid = data['payment_txid']
+
+        # A repeated claim by the payer (e.g. the first reply was lost) gets the same token and the data again.
+        # The payment was fully checked at the first claim; the payer's signature proves who is asking.
+        existing = database.get_token_for_payment(batch_id, consumer_payment_txid)
+        if existing:
+            if not data.get("signature") or not bsv_utils.claim_signed_by_payer(consumer_payment_txid, batch_id, data["signature"]):
+                abort(403, "Claim signature does not match any key that signed the payment.")
+            body = {"message": "Already claimed; returning the existing token.", "access_token": existing["access_token"],
+                    "data_endpoint": f"/batch/fetch/{batch_id}", "expires_at": existing["expiry_timestamp"]}
+            payload = batch_payload(batch_id)
+            if payload is not None:
+                body["data"] = payload
+            return jsonify(body), 200
 
         batch_details = database.get_cached_batch_details(batch_id)
         if not batch_details:
