@@ -1,0 +1,9 @@
+The experiment data in this directory (databases, CSV, JSON and log files) is
+licensed under the Creative Commons Attribution 4.0 International licence
+(CC BY 4.0): https://creativecommons.org/licenses/by/4.0/
+
+Copyright (c) 2026 Meysam Rezaei. Please cite the paper
+"Sensōra: devices that sell their own data" (DeBlock 2026) when using it.
+
+Scripts under tools/ are MIT-licensed, like the rest of the repository
+(see ../LICENSE).

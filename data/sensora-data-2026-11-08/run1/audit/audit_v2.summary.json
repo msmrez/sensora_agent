@@ -1,0 +1,50 @@
+{
+  "by_kind": {
+    "adv": {
+      "n": 1,
+      "unresolved_errors": 0,
+      "mined": 0,
+      "seen_unmined": 0,
+      "missing": 1,
+      "mined_pct_of_resolved": 0.0,
+      "latency_s": {
+        "p10": null,
+        "p50": null,
+        "p90": null,
+        "max": null,
+        "mean": null
+      }
+    },
+    "proof": {
+      "n": 122,
+      "unresolved_errors": 0,
+      "mined": 0,
+      "seen_unmined": 34,
+      "missing": 88,
+      "mined_pct_of_resolved": 0.0,
+      "latency_s": {
+        "p10": null,
+        "p50": null,
+        "p90": null,
+        "max": null,
+        "mean": null
+      }
+    }
+  },
+  "agent_vs_chain": {
+    "adv": {
+      "seen -> missing": 1
+    },
+    "proof": {
+      "seen -> missing": 88,
+      "seen -> seen": 33,
+      "pending -> seen": 1
+    }
+  },
+  "per_reading": {
+    "readings": 122,
+    "unresolved": 0,
+    "with_mined_proof": 0,
+    "pct": 0.0
+  }
+}

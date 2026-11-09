@@ -1,0 +1,32 @@
+{
+  "by_kind": {
+    "proof": {
+      "n": 127,
+      "unresolved_errors": 0,
+      "mined": 2,
+      "seen_unmined": 33,
+      "missing": 92,
+      "mined_pct_of_resolved": 1.6,
+      "latency_s": {
+        "p10": 243,
+        "p50": 543,
+        "p90": 543,
+        "max": 543,
+        "mean": 393
+      }
+    }
+  },
+  "agent_vs_chain": {
+    "proof": {
+      "success -> mined": 2,
+      "success -> missing": 92,
+      "success -> seen": 33
+    }
+  },
+  "per_reading": {
+    "readings": 127,
+    "unresolved": 0,
+    "with_mined_proof": 2,
+    "pct": 1.6
+  }
+}

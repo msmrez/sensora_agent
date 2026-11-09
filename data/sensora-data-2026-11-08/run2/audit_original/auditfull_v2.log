@@ -1,0 +1,88 @@
+{
+  "by_kind": {
+    "adv": {
+      "n": 9,
+      "unresolved_errors": 0,
+      "mined": 9,
+      "seen_unmined": 0,
+      "missing": 0,
+      "mined_pct_of_resolved": 100.0,
+      "latency_s": {
+        "p10": 28,
+        "p50": 761,
+        "p90": 1324,
+        "max": 1324,
+        "mean": 671
+      }
+    },
+    "pay_batch": {
+      "n": 63,
+      "unresolved_errors": 0,
+      "mined": 63,
+      "seen_unmined": 0,
+      "missing": 0,
+      "mined_pct_of_resolved": 100.0,
+      "latency_s": {
+        "p10": null,
+        "p50": null,
+        "p90": null,
+        "max": null,
+        "mean": null
+      }
+    },
+    "proof": {
+      "n": 1230,
+      "unresolved_errors": 0,
+      "mined": 1226,
+      "seen_unmined": 0,
+      "missing": 4,
+      "mined_pct_of_resolved": 99.7,
+      "latency_s": {
+        "p10": 109,
+        "p50": 761,
+        "p90": 2755,
+        "max": 12087,
+        "mean": 1236
+      }
+    },
+    "proof_rejected": {
+      "n": 30,
+      "unresolved_errors": 0,
+      "mined": 2,
+      "seen_unmined": 0,
+      "missing": 28,
+      "mined_pct_of_resolved": 6.7,
+      "latency_s": {
+        "p10": 116,
+        "p50": 230,
+        "p90": 230,
+        "max": 230,
+        "mean": 173
+      }
+    }
+  },
+  "agent_vs_chain": {
+    "adv": {
+      "mined -> mined": 9
+    },
+    "pay_batch": {
+      "verified -> mined": 63
+    },
+    "proof": {
+      "mined -> mined": 1222,
+      "dropped -> missing": 4,
+      "seen -> mined": 4
+    },
+    "proof_rejected": {
+      "rejected -> missing": 28,
+      "rejected -> mined": 2
+    }
+  },
+  "per_reading": {
+    "readings": 1226,
+    "unresolved": 0,
+    "with_mined_proof": 1226,
+    "pct": 100.0
+  }
+}
+ALLDONE
