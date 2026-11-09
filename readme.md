@@ -167,3 +167,7 @@ The agent serves an API for direct data monetization.
 
 Both claim endpoints require `signature`: a Bitcoin Signed Message (base64) of `SENSORA_CLAIM:<reading_id or batch_id>:<payment_txid>`, made with a key that signed one of the payment's inputs (P2PKH). The payment txid is public, so without it anyone watching the chain could claim the buyer's token.
 - `GET /batch/fetch/<batch_id>?token=...`: Fetches the complete JSON array of readings for the batch.
+
+## Licence
+
+Code: MIT (see `LICENSE`). Experiment data in `data/`: CC BY 4.0 (see `data/LICENSE`).
