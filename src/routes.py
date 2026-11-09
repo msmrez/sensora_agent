@@ -88,6 +88,30 @@ def register_all_routes(app, device_state):
             "payment_instructions": f"Send {config.PRICE_SATS_PER_READING} sats to {device_state.address}. OP_RETURN: 'SENSORA_PAY:{reading_id}:{commitment}'."
         })
 
+    def reading_payload(reading_data: dict) -> dict:
+        return {
+            "reading_id": reading_data["reading_id"], "timestamp": reading_data["timestamp"],
+            "sensor_values": (reading_data["value_temp"], reading_data["value_humid"]),
+            "data_type_code": reading_data["data_type_code"],
+            "onchain_proof_txid": reading_data["onchain_proof_txid"]
+        }
+
+    def batch_payload(batch_id: str):
+        """The readings a batch payment bought, or None if they cannot be loaded."""
+        batch_details = database.get_batch_details_for_fetch(batch_id)
+        if not batch_details:
+            return None
+        if batch_details.get('reading_ids'):
+            # v2: deliver exactly the readings the payment committed to, with their proof payloads.
+            readings = database.get_readings_by_ids(json.loads(batch_details['reading_ids']))
+        else:
+            readings = database.get_readings_in_range(batch_details['start_timestamp'], batch_details['end_timestamp'])
+        if not readings:
+            return None
+        if batch_details.get('commitment'):
+            return {"batch_id": batch_id, "commitment": batch_details['commitment'], "readings": readings}
+        return readings
+
     @app.route("/claim_reading/<int:reading_id>", methods=['POST'])
     def claim_reading_route(reading_id: int):
         data = request.get_json();
@@ -119,7 +143,10 @@ def register_all_routes(app, device_state):
         try:
             database.save_access_token(reading_id, consumer_payment_txid, access_token, expiry, config.TOKEN_MAX_USAGE)
             database.update_reading_as_paid(reading_id, consumer_payment_txid)
-            return jsonify({"message": "Access token generated.", "access_token": access_token, "data_endpoint": f"/fetch_data/{reading_id}", "expires_at": expiry}), 201
+            # The data comes back in this reply; the token is only for downloading it again (e.g. after a network
+            # failure), so this first delivery does not count against the token's usage limit.
+            return jsonify({"message": "Access token generated.", "access_token": access_token, "data_endpoint": f"/fetch_data/{reading_id}",
+                            "expires_at": expiry, "data": reading_payload(reading)}), 201
         except sqlite3.IntegrityError:
             abort(409, "Token for this payment may have already been claimed.")
         except Exception:
@@ -141,12 +168,7 @@ def register_all_routes(app, device_state):
         
         database.increment_token_usage(token_details["token_id"])
 
-        return jsonify({
-            "reading_id": reading_data["reading_id"], "timestamp": reading_data["timestamp"],
-            "sensor_values": (reading_data["value_temp"], reading_data["value_humid"]),
-            "data_type_code": reading_data["data_type_code"],
-            "onchain_proof_txid": reading_data["onchain_proof_txid"]
-        })
+        return jsonify(reading_payload(reading_data))
 
     @app.route('/status', methods=['GET'])
     def get_agent_status():
@@ -171,23 +193,12 @@ def register_all_routes(app, device_state):
         if int(time.time()) >= token_details["expiry_timestamp"]: abort(403, "Token expired.")
         if token_details["usage_count"] >= token_details["max_usage"]: abort(403, "Token usage limit reached.")
 
-        batch_details = database.get_batch_details_for_fetch(batch_id)
-        if not batch_details:
-            abort(404, "Could not find details for this batch ID (internal inconsistency).")
-
-        if batch_details.get('reading_ids'):
-            # v2: deliver exactly the readings the payment committed to, with their proof payloads.
-            readings = database.get_readings_by_ids(json.loads(batch_details['reading_ids']))
-        else:
-            readings = database.get_readings_in_range(batch_details['start_timestamp'], batch_details['end_timestamp'])
-
-        if not readings:
-            abort(404, "No data found for the given time range (internal inconsistency).")
+        payload = batch_payload(batch_id)
+        if payload is None:
+            abort(404, "No data found for this batch (internal inconsistency).")
 
         database.increment_token_usage(token_details["token_id"])
-        if batch_details.get('commitment'):
-            return jsonify({"batch_id": batch_id, "commitment": batch_details['commitment'], "readings": readings})
-        return jsonify(readings)
+        return jsonify(payload)
     @app.route("/batch/price", methods=['POST'])
     def batch_price_route():
         data = request.get_json()
@@ -287,12 +298,21 @@ def register_all_routes(app, device_state):
                                                     config.TOKEN_MAX_USAGE):
                 abort(409, "This batch has already been claimed.")
 
-            return jsonify({
-                "message": "Access token for batch generated.", 
-                "access_token": access_token, 
-                "data_endpoint": f"/batch/fetch/{batch_id}", 
+            body = {
+                "message": "Access token for batch generated.",
+                "access_token": access_token,
+                "data_endpoint": f"/batch/fetch/{batch_id}",
                 "expires_at": expiry
-            }), 201
+            }
+            # Deliver the data in this reply as well; the token is for downloading it again. A failure to load
+            # the data here must not lose the paid claim, so the buyer then simply uses the token.
+            try:
+                payload = batch_payload(batch_id)
+                if payload is not None:
+                    body["data"] = payload
+            except Exception:
+                logger.exception("Could not attach batch data to the claim reply; the token still works.")
+            return jsonify(body), 201
         except sqlite3.IntegrityError:
             abort(409, "Token for this batch payment may have already been claimed.")
         except HTTPException:

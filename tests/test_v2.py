@@ -407,6 +407,21 @@ def test_batch_claim_requires_payer_signature(api, db, monkeypatch):
     assert r.status_code == 201 and r.get_json()["access_token"]
 
 
+def test_batch_claim_returns_data_and_token_still_works(api, db, monkeypatch):
+    client, agent = api
+    payer = PrivateKey()
+    quote, txid = _quote_and_pay(client, agent, db, monkeypatch, payer)
+    sig = payer.sign_text(f"SENSORA_CLAIM:{quote['batch_id']}:{txid}")[1]
+    r = client.post("/batch/claim", json={"batch_id": quote["batch_id"], "payment_txid": txid, "signature": sig}).get_json()
+    data = r["data"]
+    assert data["commitment"] == quote["commitment"] and len(data["readings"]) == quote["num_readings"]
+    # The direct delivery does not use up the token: all three retries are still available, with the same data.
+    url = f"/batch/fetch/{quote['batch_id']}?token={r['access_token']}"
+    fetched = [client.get(url) for _ in range(4)]
+    assert [f.status_code for f in fetched] == [200, 200, 200, 403]
+    assert fetched[0].get_json() == data
+
+
 def test_batch_fetch_enforces_expiry_and_usage(api, db, monkeypatch):
     from src import config
     client, agent = api
@@ -444,7 +459,11 @@ def test_single_claim_requires_payer_signature(api, db, monkeypatch):
     monkeypatch.setattr(rawtx, "fetch_raw", lambda txid: raw)
     msg = f"SENSORA_CLAIM:1000:{tx.txid()}"
     assert client.post("/claim_reading/1000", json={"payment_txid": tx.txid(), "signature": thief.sign_text(msg)[1]}).status_code == 403
-    assert client.post("/claim_reading/1000", json={"payment_txid": tx.txid(), "signature": payer.sign_text(msg)[1]}).status_code == 201
+    r = client.post("/claim_reading/1000", json={"payment_txid": tx.txid(), "signature": payer.sign_text(msg)[1]})
+    assert r.status_code == 201
+    data = r.get_json()["data"]
+    assert data["reading_id"] == 1000 and data["sensor_values"] == [20.0, 50.0] and data["onchain_proof_txid"] == "tx-1000"
+    assert client.get(f"/fetch_data/1000?token={r.get_json()['access_token']}").get_json() == data
 
 
 def test_fresh_seen_tx_is_not_dropped_on_indexer_flips(db, monkeypatch):

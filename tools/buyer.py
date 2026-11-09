@@ -133,7 +133,7 @@ def run_round(row: dict, args, wallet: Wallet) -> dict:
         row.setdefault("pay_txid", getattr(wallet, "last_txid", None))
     row["t_paid"] = int(time.time())
 
-    token = None
+    token, delivered = None, None
     confirm_deadline = time.time() + args.confirm_timeout
     while row["claim_attempts"] < args.claim_attempts:
         row["claim_attempts"] += 1
@@ -143,6 +143,7 @@ def run_round(row: dict, args, wallet: Wallet) -> dict:
                                                              "signature": signature}, timeout=15)
         if c.status_code == 201:
             token = c.json()["access_token"]
+            delivered = c.json().get("data")  # agents since this change return the data with the token
             break
         if c.status_code == 402 and c.json().get("reason") == "unconfirmed" and time.time() < confirm_deadline:
             # Payments above the agent's max_unconfirmed_sats are released only once mined (median ~15 min).
@@ -153,9 +154,10 @@ def run_round(row: dict, args, wallet: Wallet) -> dict:
         return row
     row["t_claimed"] = int(time.time())
 
-    f = requests.get(f"{args.agent}/batch/fetch/{quote['batch_id']}", params={"token": token}, timeout=30)
-    f.raise_for_status()
-    delivered = f.json()
+    if delivered is None:  # older agents: fetch with the token
+        f = requests.get(f"{args.agent}/batch/fetch/{quote['batch_id']}", params={"token": token}, timeout=30)
+        f.raise_for_status()
+        delivered = f.json()
     row["t_fetched"] = int(time.time())
 
     readings = delivered["readings"]
