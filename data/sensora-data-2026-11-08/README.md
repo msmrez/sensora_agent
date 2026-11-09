@@ -1,6 +1,6 @@
 # Sensōra experiment data (Run 1 and Run 2)
 
-Data behind the controlled experiment in the paper *Sensōra: devices that sell their own data* (Meysam Rezaei, DeBlock 2026). Code: https://github.com/msmrez/sensora_agent. The measured versions are commit `8d91094` (v1, the baseline) and `f063262` (v2).
+Data behind the controlled experiment in the paper *Sensōra: Letting IoT Devices Sell Their Own Verifiable Data on BSV* (Meysam Rezaei, DeBlock 2026). Code: https://github.com/msmrez/sensora_agent. The measured versions are commit `8d91094` (v1, the baseline) and `f063262` (v2).
 
 ## Contents
 | Path | What it is |
