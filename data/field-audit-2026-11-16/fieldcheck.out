@@ -1,0 +1,19 @@
+PROOFS all 360 {'mined': 172, 'missing': 188}
+  2025-08: 30/30 mined  (month has 1504 readings)
+  2025-09: 20/30 mined  (month has 3627 readings)
+  2025-10: 25/30 mined  (month has 3798 readings)
+  2025-11: 10/30 mined  (month has 3665 readings)
+  2025-12: 10/30 mined  (month has 3781 readings)
+  2026-01: 9/30 mined  (month has 3811 readings)
+  2026-02: 26/30 mined  (month has 3416 readings)
+  2026-03: 29/30 mined  (month has 3513 readings)
+  2026-04: 13/30 mined  (month has 3635 readings)
+  2026-05: 0/30 mined  (month has 3802 readings)
+  2026-06: 0/30 mined  (month has 3693 readings)
+  2026-07: 0/30 mined  (month has 3638 readings)
+  weighted share mined: 44.5%
+  May-Jul 2026: 0 / 90
+  latency n=172 p10 1.5 min, p50 12.2 min, p90 3.19 h, max 102.69 h, negative 0
+BATCHPAY 171 {'mined': 164, 'missing': 7}
+SINGLEPAY 200 {'missing': 74, 'mined': 126}
+sources {'junglebus': 462, 'bitails': 0}
